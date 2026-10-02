@@ -1,0 +1,19 @@
+# 一体化容器（API + PostGIS）。目录映射都相对本文件所在目录，可用 .env 里的变量改到别处。
+services:
+  flood:
+    image: flood-aio:${TAG:-latest}
+    container_name: flood-aio
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8101}:8101"      # 后端 API
+      - "${DB_PORT:-35433}:5432"      # 数据库（不想对外就删掉这行）
+    environment:
+      # CORS_ORIGINS: https://flood.example.com
+      SIM_MOCK_PROGRESS: ${SIM_MOCK_PROGRESS:-1}
+    volumes:
+      # 数据目录（DEM、批算 CSV、仿真成果）——只读
+      - ${DATA_DIR:-./data}:/app/data:ro
+      # 溢水点缓存（可写）：叠在只读 data 之上
+      - ${CACHE_DIR:-./cache/sim_ponding}:/app/data/processed/sim_ponding
+      # 数据库文件。空目录首次启动时由镜像里已恢复好的库自动填充；之后的改动都落在这里
+      - ${PGDATA_DIR:-./pgdata}:/var/lib/postgresql/data
