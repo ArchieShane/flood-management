@@ -308,7 +308,11 @@ def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     p = root / "hotspots.json"
     if DATA_ROOT.resolve() not in root.parents or not p.is_file():
         raise sim.SimulationError(404, NO_HOTSPOTS)
-    return _load(p)
+    hot = dict(_load(p))
+    from . import sim_c1
+
+    hot["ledger_points"] = sim_c1.region_ledger_points(hot.get("region_catchment") or {})
+    return hot
 
 
 def residual(conn: psycopg.Connection, run_id: int, state: str | None = None) -> dict[str, Any]:

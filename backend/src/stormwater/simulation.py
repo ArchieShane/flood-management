@@ -28,7 +28,7 @@ from psycopg.rows import dict_row
 
 from .config import db_settings
 from . import sim_l2
-from .i18n import tr
+from .i18n import EXTENT_EN, en_label, tr
 
 SCHEMA = "simulation"
 LOCAL_TZ = "Asia/Dubai"
@@ -216,7 +216,8 @@ def list_runs(conn: psycopg.Connection, *, tab: str, user: str | None, lang: str
 
     l2_label = None
     for r in rows:
-        r["variant_label"] = tr(r["variant_label"], lang)
+        r["extent"] = EXTENT_EN.get(r.get("extent"), r.get("extent"))
+        r["variant_label"] = en_label(r["variant_label"])   # 数据名恒英文；库里的旧中文行读出时归一
         output_dir = r.pop("output_dir")
         # 防线口径取库里的值（write_defence_basis 写入）；老库还没回填的行现算兜底
         r["defence_basis"] = r["defence_basis"] or defence_basis(r["defence_line_key"], output_dir)
@@ -279,7 +280,8 @@ def get_run(conn: psycopg.Connection, run_id: int, lang: str) -> dict[str, Any]:
     if row is None:
         raise SimulationError(404, NOT_FOUND)
     row["created_by"] = row.pop("created_by_initials")
-    row["variant_label"] = tr(row.get("variant_label"), lang)
+    row["extent"] = EXTENT_EN.get(row.get("extent"), row.get("extent"))
+    row["variant_label"] = en_label(row.get("variant_label"))
     # 交付目录路径不外露，只告诉前端有没有结果图层（图层走 /layers 系列接口）
     output_dir = row.pop("output_dir", None)
     row["defence_basis"] = row.get("defence_basis") or defence_basis(row["defence_line_key"], output_dir)
@@ -316,7 +318,7 @@ def _states(conn: psycopg.Connection, output_dir: str | None, col: str,
         return None, None
     labels = {r["key"]: r["label"]
               for r in conn.execute(f"select key, {col} as label from defence_line").fetchall()}
-    return [{"key": s["key"], "label": tr(s["label"], lang), "defence_line_key": s["defence_line_key"],
+    return [{"key": s["key"], "label": en_label(s["label"]), "defence_line_key": s["defence_line_key"],
              "defence_line_label": labels.get(s["defence_line_key"]), "same_as": s.get("same_as"),
              "column": s.get("column") or s["defence_line_key"]}
             for s in m["states"]], m["default"]

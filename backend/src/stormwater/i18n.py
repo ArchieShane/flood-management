@@ -344,6 +344,8 @@ EN: dict[str, str] = {
     "L2+suggested 规划方案 + 本系统箱涵": "L2+suggested Planned scheme + our box culverts",
     # sim_city.py：全市一二维两态
     "L2 已建成塘（22 座）": "L2 Built ponds (22)",
+    # sim_native.py：AAM 原生计算结果两态
+    "L2 已确认雨水塘（1 座）": "L2 Confirmed rain pond (1)",
     # sim_c1.py：C1 热点群四态
     "L1 现状管网 + 现状泵站": "L1 Existing network + existing pump stations",
     "L2 加 OP-02 移动泵": "L2 Plus OP-02 mobile pumps",
@@ -460,6 +462,35 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 #: 这些捕获组本身就是展示名，填进模板前要再翻一次。
 _NESTED = frozenset({"ds", "pr"})
+
+
+#: 交付目录名里的中文片区名 → 库里 / API 里的英文范围名（`run.extent` 是数据，不随界面语言）
+EXTENT_EN = {"艾因": "Al Ain", "阿尔艾因": "Al Ain", "阿布扎比": "Abu Dhabi", "阿布扎比岛": "Abu Dhabi Island",
+             "全市": "City-wide", "扎夫拉": "Al Dhafra"}
+
+
+#: 态标签 / 点名里出现过的中文片段 → 英文（长的在前）。库里、交付 JSON 里的数据名一律英文：
+#: 新数据在源头写英文，旧数据由 `en_label()` 读出时兜底、`fix_labels_en.py` 一次性改写落盘文件。
+LABEL_EN: tuple[tuple[str, str], ...] = (
+    ("已确认雨水塘（1 座）", "Confirmed rain pond (1)"), ("已建成调蓄（≡ L1）", "Built storage (≡ L1)"),
+    ("已建成塘（22 座）", "Built ponds (22)"), ("规划方案 + 本系统箱涵", "Planned scheme + our box culverts"),
+    ("现状管网 + 现状泵站", "Existing network + existing pump stations"), ("加 OP-02 移动泵", "Plus OP-02 mobile pumps"),
+    ("转输与地面取水泵", "Transfer and surface-intake pumps"), ("PO塘方案(来源待确认)", "PO pond scheme (source to be confirmed)"),
+    ("汇水区（模型版：", "catchment (model version: "), ("Parsons 方案", "Parsons scheme"), ("规划方案", "Planned scheme"),
+    ("已建成调蓄", "Built storage"), ("既有管网", "Existing network"), ("移动泵", "Mobile pumps"),
+    ("加OP-02移动泵", "Plus OP-02 mobile pumps"), ("现状管网", "Existing network"), ("现状泵站", "existing pump stations"),
+    ("现状", "Existing"), ("计算域", "computational domain"), ("）", ")"),
+)
+
+
+def en_label(text: str | None) -> str | None:
+    """数据名里的中文片段换成英文；已是英文 / 空值原样返回。「N 态：」写法也归一。"""
+    if not text or not re.search("[一-鿿]", text):
+        return text
+    out = re.sub(r"^(\d+) 态：", r"\1 states: ", text)
+    for zh, en in sorted(LABEL_EN, key=lambda kv: -len(kv[0])):
+        out = out.replace(zh, en)
+    return out
 
 
 def tr(text: str | None, lang: Lang) -> str | None:

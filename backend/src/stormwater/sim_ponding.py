@@ -56,6 +56,7 @@ import hashlib
 import heapq
 import json
 import re
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -519,7 +520,9 @@ def load(run_dir: Path) -> dict[str, Any]:
     else:
         out = compute(run_dir)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
+        # 临时文件名带唯一后缀：详情页同时请求 ponding 图层和 states/perf，两边都发现没有缓存、都现算，
+        # 共用一个 .tmp 会让后写完的那个 replace 时找不到文件（500）
+        tmp = p.with_name(f"{p.stem}.{uuid.uuid4().hex[:8]}.tmp")
         tmp.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
         tmp.replace(p)
     return recession(name_clusters(out))

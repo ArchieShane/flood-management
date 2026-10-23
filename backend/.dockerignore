@@ -28,3 +28,4 @@ Dockerfile
 .dockerignore
 docker-build.sh
 docker-run.sh
+docker-import.sh

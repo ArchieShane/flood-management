@@ -106,9 +106,9 @@ class TestMussafahL2B:
         assert top["rank"] == 1 and top["class"] == "no_inlet" and top["volume_m3"] == pytest.approx(495.1, abs=1)
 
 
-def test_state_labels_have_english():
+def test_state_labels_are_english_at_source():
     for st in sim_sww.STATES:
-        assert sim_sww.state_label(st) in EN
+        assert sim_sww.state_label(st).replace('≡', '').isascii()
 
 
 REGISTERED = "processed/sim_deliveries/Mussafah_00_61mm2h"

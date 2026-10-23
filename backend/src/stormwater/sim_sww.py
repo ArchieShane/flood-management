@@ -88,16 +88,20 @@ CHUNK = 30               # 逐块读 .sww 的时间步数（一块 ~90 MB）
 #: 两个 L2+ 同属第二道规划；效果分析页按 `COLUMNS` 分列：Parsons 是 Planned，在其上加箱涵是 Suggested。
 #: 交付的 L2+B（单做箱涵的对照）按用户 2026-09-28 要求不接
 STATES = {
-    "L1": ("L1_", "line1", "既有管网"),
-    "L2": ("L2_", "line2_current", "已建成调蓄（≡ L1）"),
-    "L2+planned": ("L2+planned", "line2_planned", "规划方案"),
-    "L2+suggested": ("L2+suggested", "line2_planned", "规划方案 + 本系统箱涵"),
+    "L1": ("L1_", "line1", "Existing network"),
+    "L2": ("L2_", "line2_current", "Built storage (≡ L1)"),
+    "L2+planned": ("L2+planned", "line2_planned", "Planned scheme"),
+    "L2+suggested": ("L2+suggested", "line2_planned", "Planned scheme + our box culverts"),
 }
 COLUMNS = {"L1": "line1", "L2": "line2_current", "L2+planned": "line2_planned",
            "L2+suggested": "line2_suggested"}
 #: 每态叠在哪一态上（交付 00_说明.md 的「五态是什么」）；效果分析的「新增调蓄」按它算
 PARENT = {"L1": None, "L2": "L1", "L2+planned": "L2", "L2+suggested": "L2+planned"}
-_REGION_RX = re.compile(r"^(.+?)_(\d+(?:\.\d+)?)mm(\d+(?:\.\d+)?)h$")
+#: 交付目录名：`<片区…>_<雨深>mm<历时>h[_<网格>m | _G<网格>]`，如 `Mussafah_00_61mm2h`、`C1_模型版_61mm2h_5m`、`YAS_61mm2h_G5`
+_REGION_RX = re.compile(r"^(?P<region>.+?)_(?P<depth>\d+(?:\.\d+)?)mm(?P<dur>\d+(?:\.\d+)?)h"
+                        r"(?:_G(?P<g>\d+(?:\.\d+)?)|_(?P<m>\d+(?:\.\d+)?)m)?$")
+#: 历史交付（无网格后缀）的标称网格；输出键只在网格不等于它时才带后缀，已抽好的目录名因此不变
+LEGACY_RES_M = 15.0
 
 
 def state_label(state: str) -> str:
@@ -120,17 +124,32 @@ def _state_dir(root: Path, state: str) -> Path | None:
 
 
 def _one(d: Path, pattern: str) -> Path:
-    hits = sorted(d.glob(pattern))
+    hits = sorted(p for p in d.glob(pattern) if not p.name.startswith("._"))   # 忽略 macOS 打包带的 ._ 伴生文件
     if len(hits) != 1:
         raise SwwError(f"{d} 下 {pattern} 找到 {len(hits)} 个，需恰好一个")
     return hits[0]
 
 
-def _parse_name(root: Path) -> tuple[str, float, float]:
-    m = _REGION_RX.match(root.name)
+def parse_delivery_name(name: str) -> tuple[str, float, float, float | None]:
+    """目录名 → (片区, 雨深 mm, 历时 h, 目录名里标的网格 m；没标为 None)。"""
+    m = _REGION_RX.match(name)
     if not m:
-        raise SwwError(f"交付目录名 {root.name} 不是「片区_雨深mm历时h」的形状")
-    return m.group(1), float(m.group(2)), float(m.group(3))
+        raise SwwError(f"交付目录名 {name} 不是「片区_雨深mm历时h[_网格m]」的形状")
+    res = m.group("g") or m.group("m")
+    return m.group("region"), float(m.group("depth")), float(m.group("dur")), float(res) if res else None
+
+
+def _parse_name(root: Path) -> tuple[str, float, float]:
+    return parse_delivery_name(root.name)[:3]
+
+
+def output_key(root: Path, res_m: float | None = None) -> str:
+    """抽取结果目录名（`sim_deliveries/<键>/`）。网格取运行记录的 `res_m`（缺则取目录名里标的），
+    不是历史的 15 m 就加 `_<n>m` 后缀，让同雨量的 15 m 与 5 m 并存、互不覆盖。"""
+    region, depth, dur, named = parse_delivery_name(root.name)
+    res = res_m if res_m else named
+    key = f"{region}_{depth:g}mm{dur:g}h"
+    return key if res is None or abs(res - LEGACY_RES_M) < 1e-6 else f"{key}_{res:g}m"
 
 
 def _node_coords(inp: Path) -> dict[str, tuple[float, float]]:
@@ -497,8 +516,8 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     (out / "node_cell_binding.json").write_text(
         '{"schema": "' + SCHEMA + '", "note": "节点坐标取耦合 SWMM 的 [COORDINATES]，落到 15 m 格", "bindings": [\n'
         + ",\n".join(binds) + "\n]}\n", encoding="utf-8")
-    shutil.copy2(rpt, out / "swmm_coupled.rpt")
-    shutil.copy2(inp, out / "coupled_scenario.inp")
+    shutil.copyfile(rpt, out / "swmm_coupled.rpt")          # 不用 copy2：NAS 文件常是 660，权限位带过来 API 进程读不了
+    shutil.copyfile(inp, out / "coupled_scenario.inp")
     hyd = _inflow_hydrograph(inp, depth_mm, dur_h * 60, _region_ha(root))
     if hyd is not None:
         _dump(out / "inflow_hydrograph.json", hyd)
@@ -684,7 +703,7 @@ def import_all(root: Path, by: str | None = None, only: list[str] | None = None)
     top = max((STATES[k][1] for k in keys), key=sim.LINE_ORDER.index)
     with sim.connect() as conn:
         return sim_results.import_delivery(conn, base, by, line_key=top, extent=region,
-                                           variant_label=f"{len(keys)} 态：{' / '.join(keys)}")
+                                           variant_label=f"{len(keys)} states: {' / '.join(keys)}")
 
 
 def main() -> None:

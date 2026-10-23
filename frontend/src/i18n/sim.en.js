@@ -583,9 +583,11 @@ export default {
   },
   hotspots: {
     title: 'Hotspots',
-    toggle: 'Hotspots',
+    toggle: 'Watched hotspots',
+    ledgerToggle: 'All ledger hotspots',
+    ledgerTip: 'All hotspots registered in the ledger (ADM) inside this region\'s catchment, shown as grey dots; the watched hotspots with delivered statistics are on the "Watched hotspots" layer and not drawn twice.',
     catchToggle: 'Catchments',
-    catchTip: 'Solid blue = network catchment, dashed orange = surface catchment',
+    catchTip: 'Thick purple = region catchment, solid blue = network catchment, dashed orange = surface catchment (unconverged ones are hidden)',
     lead: '{n} hotspots specified by the model provider ({state}). Catchment = union of the point\'s surface and network catchments; 200 m = cells within 200 m of the point.',
     id: 'Hotspot',
     near: 'Max depth within 200 m',

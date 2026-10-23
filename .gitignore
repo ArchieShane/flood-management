@@ -16,3 +16,13 @@ backend/logs/
 frontend_*/
 frontend_*.zip
 .claude/settings.local.json
+
+# 生产部署包（镜像 tar、数据，体积大，不进代码库）
+deploy/
+
+deploy-*/
+deploy-*.tar.gz
+deploy-*.zip
+data_bak/
+._*
+*.zip

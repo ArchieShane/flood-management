@@ -52,7 +52,7 @@ def label(name: str, distance_m: float) -> str:
     """
     if _RTL.search(name):
         name = f"\u2068{name}\u2069"
-    return f"{name}附近{round(distance_m)}米的溢水点"
+    return f"Overflow point {round(distance_m)} m from {name}"
 
 
 @lru_cache(maxsize=1)

@@ -28,14 +28,14 @@ def test_nearest_picks_closest_and_rounds(poi_csv):
     hit = poi.nearest(1030.0, 2040.4)
     assert hit["objectid"] == 1
     assert hit["distance_m"] == 50
-    assert hit["label"] == "Al Bateen Mall附近50米的溢水点"
+    assert hit["label"] == "Overflow point 50 m from Al Bateen Mall"
 
 
 def test_name_clusters(poi_csv):
     out = {"clusters": [{"x": 4900.0, "y": 2000.0}, {"x": None, "y": None}]}
     sim_ponding.name_clusters(out)
     a, b = out["clusters"]
-    assert a["name"] == "\u2068مقبرة\u2069附近100米的溢水点"   # 阿拉伯文名套方向隔离符
+    assert a["name"] == "Overflow point 100 m from ⁨مقبرة⁩"   # 阿拉伯文名套方向隔离符
     assert a["poi"] == {"objectid": 2, "name": "مقبرة", "type": "cemetery", "distance_m": 100}
     assert b["name"] is None and b["poi"] is None
 
@@ -51,5 +51,5 @@ def test_no_csv_means_no_name(tmp_path, monkeypatch):
 
 def test_label_translates_at_api_boundary():
     zh = poi.label("Premier Motors", 15.2)
-    assert tr(zh, "zh") == "Premier Motors附近15米的溢水点"
+    assert tr(zh, "zh") == "Overflow point 15 m from Premier Motors"
     assert tr(zh, "en") == "Overflow point 15 m from Premier Motors"

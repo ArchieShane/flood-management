@@ -63,8 +63,8 @@ MODEL_RES_M = 30.0        # 地形有效分辨率（计算设置.md：5 m DTM �
 
 #: 态 → (子目录前缀, 防线, 中文名)；中文名改了要同步 i18n.EN
 STATES = {
-    "L1": ("L1_", "line1", "既有管网"),
-    "L2": ("L2_", "line2_current", "已建成塘（22 座）"),
+    "L1": ("L1_", "line1", "Existing network"),
+    "L2": ("L2_", "line2_current", "Built ponds (22)"),
 }
 COLUMNS = {"L1": "line1", "L2": "line2_current"}
 PARENT = {"L1": None, "L2": "L1"}
@@ -80,12 +80,17 @@ def _state_dir(root: Path, state: str) -> Path | None:
 
 
 def _link(src: Path, dst: Path) -> None:
+    """把大文件（.rpt / .inp）放进抽取结果：同卷且源文件对所有人可读才硬链（零拷贝）；否则拷贝，且**不继承源文件的权限位**。
+    NAS 上的文件常是 root:<组> 660，`copy2` 会把 660 带过来，API 进程（容器里的普通用户）就读不了，页面的储水设施 / 效果分析报 500。"""
     if dst.exists():
         dst.unlink()
     try:
-        os.link(src, dst)
+        if src.stat().st_mode & 0o004:
+            os.link(src, dst)
+            return
     except OSError:
-        shutil.copy2(src, dst)
+        pass
+    shutil.copyfile(src, dst)       # 不带权限位：按进程 umask 落成 644
 
 
 def _stats(root: Path) -> dict[str, dict[str, str]]:
@@ -100,6 +105,32 @@ def _stats(root: Path) -> dict[str, dict[str, str]]:
 # ---------------------------------------------------------------------------
 # 从 npz 聚到 250 m 格
 # ---------------------------------------------------------------------------
+
+
+def _row_blocks(npz: Path, key: str, n_rows: int, budget_bytes: int = 192 * 2**20):
+    """逐块读 npz 里一个 (行, 列) 数组：产出 (起始行, 块)。块大小按字节预算折成行数，至少 1 行。
+    np.load 取 npz 的键会把整个数组解到内存；这里直接开 zip 成员、读 .npy 头后按行流式读（压缩与否都行）。
+    读不了（Fortran 序 / 非二维 / 头版本不认）就退回整块读再切，行为相同、只是吃内存。"""
+    import zipfile
+
+    with zipfile.ZipFile(npz) as zf, zf.open(f"{key}.npy") as fh:
+        ver = np.lib.format.read_magic(fh)
+        hdr = {(1, 0): np.lib.format.read_array_header_1_0, (2, 0): np.lib.format.read_array_header_2_0}.get(ver)
+        shape, fortran, dtype = hdr(fh) if hdr else ((), True, None)
+        if hdr and not fortran and len(shape) == 2 and shape[0] == n_rows and not dtype.hasobject:
+            row_bytes = int(shape[1]) * dtype.itemsize
+            step = max(1, budget_bytes // max(row_bytes, 1))
+            for i in range(0, n_rows, step):
+                k = min(step, n_rows - i)
+                buf = fh.read(k * row_bytes)
+                if len(buf) != k * row_bytes:
+                    raise ValueError(f"{npz.name}:{key} 提前结束（要 {k * row_bytes} 字节，读到 {len(buf)}）")
+                yield i, np.frombuffer(buf, dtype).reshape(k, int(shape[1]))
+            return
+    arr = np.load(npz)[key]
+    step = max(1, budget_bytes // max(arr[0].nbytes, 1))
+    for i in range(0, n_rows, step):
+        yield i, arr[i:i + step]
 
 
 def _extract_grid(npz: Path, cs: float = CELL_M) -> dict[str, Any]:
@@ -129,30 +160,39 @@ def _extract_grid(npz: Path, cs: float = CELL_M) -> dict[str, Any]:
     frames: list[tuple[float, np.ndarray]] = []
     wet, hmx, vol = [], [], []
     last = None
-    F = z["frames"]          # (72, n_tri) float16，~900 MB，整块读一次
     # 有单宽流量（C1 的 npz 带 uh / vh）就顺带出格内最大流速，口径同 sim_sww：Σ(动量×面积) / Σ(水深×面积)
-    UH, VH = (z["uh"], z["vh"]) if "uh" in z.files and "vh" in z.files else (None, None)
-    maxsp = np.zeros(n) if UH is not None else None
-    for i in range(F.shape[0]):
-        h = F[i].astype(np.float32)
-        wet.append(float(area[h >= DELIVERY_WET_M].sum()))
-        hmx.append(float(h.max()))
-        vol.append(float((h * area).sum()))
-        d = np.zeros(n)
-        d[has] = np.bincount(cell, h * area, n)[has] / cell_area[has]
-        up = d > maxd
-        maxd[up] = d[up]
-        peak_min[up] = t_min[i]
-        if maxsp is not None:
+    has_speed = "uh" in z.files and "vh" in z.files
+    maxsp = np.zeros(n) if has_speed else None
+    # frames / uh / vh 是 (帧数, 三角单元数) 的 float16：5 m 的 24 h 雨约 336 × 800 万 × 2 B ≈ 5 GB 一个，
+    # 绝不整块读，逐块（每块几帧）从 zip 里流式读，内存只随块大小走
+    n_fr = len(t_min)
+    blocks = _row_blocks(npz, "frames", n_fr)
+    if has_speed:
+        blocks = zip(blocks, _row_blocks(npz, "uh", n_fr), _row_blocks(npz, "vh", n_fr))
+    for blk in blocks:
+        F, UH, VH = (blk[0][1], blk[1][1], blk[2][1]) if has_speed else (blk[1], None, None)
+        i0 = blk[0][0] if has_speed else blk[0]
+        for k in range(F.shape[0]):
+            i = i0 + k
+            h = F[k].astype(np.float32)
+            wet.append(float(area[h >= DELIVERY_WET_M].sum()))
+            hmx.append(float(h.max()))
+            vol.append(float((h * area).sum()))
             dc = np.bincount(cell, h * area, n)
-            mx = np.bincount(cell, UH[i].astype(np.float32) * area, n)
-            my = np.bincount(cell, VH[i].astype(np.float32) * area, n)
-            w = d >= WET_M
-            sp = np.zeros(n)
-            sp[w] = np.hypot(mx[w], my[w]) / dc[w]
-            np.maximum(maxsp, sp, out=maxsp)
-        frames.append((float(t_min[i]) * 60, d.astype(np.float32)))
-        last = d
+            d = np.zeros(n)
+            d[has] = dc[has] / cell_area[has]
+            up = d > maxd
+            maxd[up] = d[up]
+            peak_min[up] = t_min[i]
+            if maxsp is not None:
+                mx = np.bincount(cell, UH[k].astype(np.float32) * area, n)
+                my = np.bincount(cell, VH[k].astype(np.float32) * area, n)
+                w = d >= WET_M
+                sp = np.zeros(n)
+                sp[w] = np.hypot(mx[w], my[w]) / dc[w]
+                np.maximum(maxsp, sp, out=maxsp)
+            frames.append((float(t_min[i]) * 60, d.astype(np.float32)))
+            last = d
     wet_a = np.asarray(wet)
     j = int(np.argmax(wet_a))
     return {
@@ -416,7 +456,7 @@ def import_all(root: Path, by: str | None = None, only: list[str] | None = None)
     top = max((STATES[k][1] for k in keys), key=sim.LINE_ORDER.index)
     with sim.connect() as conn:
         return sim_results.import_delivery(conn, base, by, line_key=top, extent="City-wide",
-                                           variant_label=f"{len(keys)} 态：{' / '.join(keys)}")
+                                           variant_label=f"{len(keys)} states: {' / '.join(keys)}")
 
 
 def main() -> None:

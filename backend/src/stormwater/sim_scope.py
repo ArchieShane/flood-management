@@ -73,9 +73,15 @@ def compute(root: Path, base: Path, hot: dict[str, Any]) -> dict[str, Any]:
 
     dom = json.loads((root / "公共" / "计算域.geojson").read_text(encoding="utf-8"))
     domain = burn([_to_utm(f["geometry"]) for f in dom["features"]])
-    catch = burn([_to_utm(f["geometry"]) for f in hot["catchments"]["features"]]) & domain
-    px, py = warp_transform(CRS_LL, CRS_UTM, [p["lon"] for p in hot["points"]], [p["lat"] for p in hot["points"]])
-    hxy = np.column_stack([px, py])
+    # 汇水区面只有 C1 交付带；没有就不出「热点汇水区」口径（页面的口径标签按 scopes 的键出，自动少一个）
+    cfeats = hot["catchments"]["features"]
+    scopes = [s for s in SCOPES if s != "catchment" or cfeats]
+    catch = burn([_to_utm(f["geometry"]) for f in cfeats]) & domain if cfeats else np.zeros_like(domain)
+    if hot["points"]:
+        px, py = warp_transform(CRS_LL, CRS_UTM, [p["lon"] for p in hot["points"]], [p["lat"] for p in hot["points"]])
+    else:
+        px, py = [], []
+    hxy = np.column_stack([px, py]) if len(px) else np.zeros((0, 2))
 
     def cell(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         col = np.floor((x - tr.c) / tr.a).astype(int)
@@ -91,7 +97,7 @@ def compute(root: Path, base: Path, hot: dict[str, Any]) -> dict[str, Any]:
         in_dom = ok & domain[r, c]
         return {"domain": in_dom, "catchment": ok & catch[r, c], "near_200m": in_dom & near_hot(x, y)}
 
-    out: dict[str, dict[str, dict[str, Any]]] = {k: {} for k in SCOPES}
+    out: dict[str, dict[str, dict[str, Any]]] = {k: {} for k in scopes}
     for st in states:
         d = base / st["dir"]
         key = st["key"]
@@ -107,7 +113,7 @@ def compute(root: Path, base: Path, hot: dict[str, Any]) -> dict[str, Any]:
         vin = vol[inside]
         cl = sim_ponding.load(d)["clusters"]
         cm = member(np.array([x["x"] for x in cl], float), np.array([x["y"] for x in cl], float)) if cl else None
-        for s in SCOPES:
+        for s in scopes:
             o = out[s].setdefault(key, {})
             o["ponding"] = int(cm[s].sum()) if cm else 0
             o["overflow_m3"] = round(float(vin[nm[s]].sum()), 1)

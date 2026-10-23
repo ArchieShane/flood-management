@@ -604,3 +604,64 @@ cd backend && PYTHONPATH=src .venv/bin/python -m stormwater.sim_results import d
 
 多态交付（如 Mussafah 四态）由 `sim_sww.py` 从 `.sww` 抽取并写 `states.json` 后登记；溢水点缓存可用
 `python -m stormwater.sim_ponding <run_id>` 预热。
+
+---
+
+## 附：服务器一二维交付的接入（`sim_c1`，2026-10-12）
+
+服务器（C1 / Mussafah / Yas / Al Bateen / Bani Yas）的成果按下面的约定读。登记命令不变：
+
+```bash
+cd backend && PYTHONPATH=src .venv/bin/python -m stormwater.sim_c1 import <交付目录> --by <缩写>   # 只抽不登记用 extract
+```
+
+| 项 | 约定 |
+|---|---|
+| 目录名 | `<片区…>_<雨深>mm<历时>h[_<网格>m \| _G<网格>]`，如 `C1_61mm2h`、`C1_模型版_61mm2h_5m`、`YAS_61mm24h_G5`（`sim_sww.parse_delivery_name`） |
+| 网格 | 取各态耦合运行记录的 `res_m`（各态不一致报错；记录没写则取目录名里标的，再退回 15 m）。登记的 `grid_m` = 这个模型网格 |
+| 抽取结果键 | `sim_deliveries/<片区>_<雨深>mm<历时>h[_<n>m]/`：网格不是 15 m 才加后缀，已抽好的 `C1_61mm2h` 不改名；同雨量的 15 m 与 5 m 因此并存、互不覆盖（任务靠 `grid_m` 区分） |
+| 落图格网 | `max(res_m, 15 m)`：5 m 模型也落 15 m 格（逐帧 geojson 按 5 m 落图会大 9 倍），`domain.cell_size_m` 记落图格，`model_configuration.model_cell_size_m` 记模型网格 |
+| 态 | 按目录实有的态读（前缀 `L1_` `L2_` `L2+planned` `L2+suggested`），缺的不报错；同一态有两个目录报错而不是悄悄挑一个。`L2+suggested_v3_按塘余量分配` 按前缀命中 |
+| 态名 | C1 用 `STATES` 里已翻译的固定名；别的片区取目录名前缀后面的那段（不替交付方编名字，英文界面里不翻） |
+| 设施GIS | 先找 `<态目录>/设施GIS/`，没有再退回旧样例的 `<交付>/../planned\|sugg/设施GIS` |
+| 帧 | 24 h 雨模拟 28 h、5 min 一帧 = 336 帧。`frames / uh / vh`（帧 × 三角单元，float16）从 zip 里分块流式读（每块 ≤ 192 MB），不再整块解出；分块与整块的结果逐位相同（`test_sim_c1_fake.py`） |
+| `._` 文件 | macOS 打包带的 `._*` 伴生文件一律忽略（样例里 `耦合的一维/` 有，原先会让 `*.rpt` 数出 2 个） |
+
+**体量评估**（C1 样例 15 m 落图格，L1 单态逐帧 geojson 219 MB / 72 帧 ≈ 3.0 MB/帧）：336 帧约 1 GB/态，四态一份交付约 4 GB（积水范围更大会更多）；
+5 m 的 npz 约 800 万三角单元，分块读峰值内存估算 ≈ 1.3 GB（`n_tri × 90 B + 3 × 192 MB`），整块读 `frames+uh+vh` 要十几 GB。
+逐帧 geojson 的格式（`{type, geometry: null, properties}` 逐格一个 Feature）没改；要压体量，下一步是改成紧凑数组并同步 `sim_results` / `sim_ponding` / `sim_residual` 三个读者。
+
+### 已知口径差异（不是 bug）
+
+- **系统储水能力**：交付没有 `analysis/state_stats.csv` 时，系统退回按 `.inp` 自算，数偏小（不含检查井），与客户口径不同。
+- **页面上的「溢水点」**是系统按自己的口径（`sim_ponding` 七步）从成果重新识别的，不等于服务器统计里的热点。
+- 计算域面积由三角单元面积求和得到（C1 约 42.7 km²），不再沿用文案里写死的 42.8。
+
+### 新区域与 Mussafah 15 m
+
+- Yas / Al Bateen / Bani Yas 只有 L1、L2 两态，`extract` / `import` 按实有态读。C1 才有的局限文案（ADM-90 等）只在 C1 写；别的片区写「口径见交付的计算设置.md」。
+  态与防线的对应沿用 `L1 → 第一道`、`L2 → 第二道（现状）`，**L2 实际是什么措施要对交付的说明核一遍**，不对再改 `STATES`。
+- **热点（积水点）每个片区都读**（`hotspots.json`，`/api/simulations/{id}/hotspots`）。逐态数取交付的统计值表：C1 是 `统计值/C1统计值.xlsx`，
+  Mussafah 模型版与 Yas / Al Bateen / Bani Yas 是 `对比_缺口分析/统计值.csv`（区域 / 口径 / 指标 / 各态；区域名 `ADM-86` 不补零，并集行叫 `N 个热点`，`全域` 行与水量对账行单列）。
+  坐标取台账 `hotspots_845.csv` 按 `ADM-<补零编号>` 对（`hotspot_id_raw` 在 ADM / AAM / DRM 间会重复，不能只用数字）；没有台账时退回交付的 `公共/热点.geojson`。
+  汇水区面只有 C1 交付带，别的片区没有，此时只出「全域 / 离热点 200 m」口径（页面的口径标签自动少「热点汇水区」，积水点表里汇水区那几列显示「—」）。
+  已知编号：Yas ADM-003 / 085 / 490 / 007；Al Bateen ADM-075（距域边 9 m）/ 076 / 377 / 379 / 380；Bani Yas ADM-049；Mussafah ADM-086 / 087 / 014 / 189（**未做落点验证**）。
+- **Mussafah 模型版与 Yas / Al Bateen / Bani Yas 的交付（`ms_post.py` / `rg_post.py`）已接入**（2026-10-13）。它们的形状和 C1 不同：
+  态目录下是 `一维/`（`<名>_<态记号>.inp`、`<名>_<态记号>_一维报告.rpt`）与 `二维/`（`<态记号>_耦合运行记录.json` + 一个 `.sww`），交付里**没有 npz**；
+  npz 在 NAS 的 `<主机>/work/c2d/<名>_<态记号>_2d.npz`（态记号 L1 / L2 / L2P / L2S3 = L2+planned / L2+suggested）。
+  `sim_c1.state_files` 同时认两种形状，npz 缺了就去 `work/c2d` 找：候选名依次是运行记录的 `tag`、交付里 `.inp` 的文件名、`*_<态记号>_2d.npz` 唯一匹配；
+  多个匹配或一个都没有就报错，不悄悄挑。`work/c2d` 默认从交付目录往上找 `<主机>/work/c2d`，也可 `--c2d <目录>` 指定。
+  同一套也兜住了 C1 以 `--no_big` 导出（`一二维/` 里没有 npz）的情形。
+  这两种交付**地表不直接受雨**（运行记录 `acc_m3.rain = 0`，来水全是井口溢流）：摘要里不再写「离井 > 46 m 直接受雨」，`sim_ponding` 照记 `no_surface_rain`；
+  C1 特有的局限（ADM-90 等）也只在 C1 写。范围名取目录名去掉口径标记（`模型版` `客户单元` `设计暴雨`）：`Mussafah_00_模型版_61mm2h` → `Mussafah_00`。
+  **文件命名是照服务器脚本推的，没见过真实 NAS**：登记前先 `sim_probe` 看「work/c2d（按 … 找到）」那一行，对不上就把摘要发回来再调。
+
+### 内网自检
+
+```bash
+python -m stormwater.sim_probe <交付目录 | /media/pop-fs/flood_data/result/<主机名>> --depth 4 --out 摘要.txt
+```
+登记统一用 `python -m stormwater.sim_import <交付目录> --by ZN`：按交付形状自动选 `sim_sww`（旧 .sww 交付，如 `Mussafah_00_61mm2h`）/ `sim_city`（`全市_…`）/ `sim_c1`（其余一二维 npz 交付）；`--kind` 只打印判定；`--c2d <目录>` 显式指定 npz 所在的 `work/c2d`。名字不是「片区_雨深mm历时h[_网格m]」形状的目录（如 `.bak-…` 备份）一律不识别。
+
+只读、只依赖 numpy，不输出任何数据本体：目录清单、各 npz 的键 / shape / dtype / 帧数 / t_h 首末与步长、运行记录的 `res_m` 与 `end_h`、
+`设施GIS` 与统计值文件有无、与抽取代码要求逐条对照的「可抽取 / 不可抽取」结论，以及上面两条口径差异。

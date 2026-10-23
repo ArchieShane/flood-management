@@ -757,7 +757,13 @@ function drawHot() {
   if (!map || !hot.value || !hotOn.value) return
   hotLayer = L.layerGroup()
   if (hotCatchOn.value) {
+    // 片区汇水区（本交付自己的）
+    const rc = hot.value.region_catchment
+    if (rc?.features?.length)
+      L.geoJSON(rc, { style: { color: '#7048e8', weight: 2, opacity: 0.9, fillOpacity: 0.04 }, interactive: false }).addTo(hotLayer)
+    // 逐热点汇水区；没收敛的（伸出计算窗口）画出来是错的，不画
     L.geoJSON(hot.value.catchments, {
+      filter: f => !f.properties.unconverged,
       style: f => (f.properties.kind === 'surface'
         ? { color: HOT_COLOR, weight: 1.2, opacity: 0.8, dashArray: '4 4', fillOpacity: 0.03 }
         : { color: '#1c7ed6', weight: 1.2, opacity: 0.8, fillOpacity: 0.05 }),
@@ -766,7 +772,7 @@ function drawHot() {
   }
   for (const p of hot.value.points) {
     const m = L.marker([p.lat, p.lon], {
-      icon: L.divIcon({ className: 'rm-hot', html: `<span>${esc(p.id.replace('ADM-', ''))}</span>`, iconSize: [34, 22] }),
+      icon: L.divIcon({ className: 'rm-hot', html: `<span>${esc(p.id.replace(/^[A-Z]{3}-/, ''))}</span>`, iconSize: [34, 22] }),
       zIndexOffset: 3000,
     })
     m.bindPopup(() => hotPopup(p), { className: 'rm-pop', minWidth: 220, maxWidth: 300, offset: [0, -6] })
@@ -777,6 +783,33 @@ function drawHot() {
   hotLayer.addTo(map)
 }
 watch([hot, hotOn, hotCatchOn, () => props.state, locale], drawHot)
+
+/* 台账登记的全部积水点：交付统计的那几个（上面的「关注积水点」）以外的点画成小灰点，关注点不重复画 */
+const ledgerOn = ref(false)
+const ledgerPts = computed(() => hot.value?.ledger_points || [])
+let ledgerLayer = null
+
+function ledgerPopup(p) {
+  return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}<br>` +
+    `<span style="opacity:.75">${esc(p.location || '')}</span><br>${fmtLatLon(p)}`
+}
+
+function drawLedger() {
+  ledgerLayer?.remove()
+  ledgerLayer = null
+  if (!map || !ledgerOn.value || !ledgerPts.value.length) return
+  const watched = new Set((hot.value?.points || []).map(p => p.id))
+  ledgerLayer = L.layerGroup()
+  for (const p of ledgerPts.value) {
+    if (watched.has(p.id)) continue
+    L.circleMarker([p.lat, p.lon], { radius: 6, weight: 1.5, color: '#fff', fillColor: '#868e96', fillOpacity: 0.95 })
+      .bindPopup(() => ledgerPopup(p), { className: 'rm-pop', minWidth: 200, maxWidth: 280 })
+      .bindTooltip(esc(p.id.replace(/^[A-Z]{3}-/, '')),{ direction: 'top', offset: [0, -4] })
+      .addTo(ledgerLayer)
+  }
+  ledgerLayer.addTo(map)
+}
+watch([hot, ledgerOn, locale], drawLedger)
 
 function focusHotspot(id) {
   const m = hotMarkers.get(id)
@@ -910,6 +943,10 @@ onBeforeUnmount(() => {
       <label v-if="hot" class="rm-pond-toggle">
         <input v-model="hotOn" type="checkbox" />
         {{ t('sim.hotspots.toggle') }}（{{ hot.points.length }}）
+      </label>
+      <label v-if="ledgerPts.length" class="rm-pond-toggle" :title="t('sim.hotspots.ledgerTip')">
+        <input v-model="ledgerOn" type="checkbox" />
+        {{ t('sim.hotspots.ledgerToggle') }}（{{ ledgerPts.length }}）
       </label>
       <label v-if="hot && hotOn" class="rm-pond-toggle" :title="t('sim.hotspots.catchTip')">
         <input v-model="hotCatchOn" type="checkbox" />
