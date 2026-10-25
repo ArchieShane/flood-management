@@ -41,6 +41,20 @@
         "--strictPort"
       ],
       "port": 5174
+    },
+    {
+      "name": "api-win",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "stormwater.api.main:app",
+        "--app-dir",
+        "backend/src",
+        "--port",
+        "8101"
+      ],
+      "port": 8101
     }
   ]
 }

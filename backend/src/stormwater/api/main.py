@@ -34,6 +34,7 @@ from ..idf import (
     get_dataset,
 )
 from .. import hyetograph, sim_mock
+from .rda import router as rda_router
 from .simulations import router as simulations_router
 from ..model_registry import load_model_registry
 from ..manning import (
@@ -104,6 +105,7 @@ CORS_ORIGINS = [
 ]
 
 app.include_router(simulations_router)
+app.include_router(rda_router)
 
 app.add_middleware(
     CORSMiddleware,

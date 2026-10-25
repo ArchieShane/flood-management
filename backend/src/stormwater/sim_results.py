@@ -74,11 +74,16 @@ def _states(root: Path) -> dict[str, Any] | None:
     return _load(man) if man.is_file() else None
 
 
+def _posix(output_dir: str) -> str:
+    """库里的 output_dir 若是在 Windows 上登记的（反斜杠分隔），换成正斜杠再拼路径。"""
+    return output_dir.replace("\\", "/")
+
+
 def run_states(output_dir: str | None) -> dict[str, Any] | None:
     """多态任务的态清单（给 get_run / list_runs）；单一交付返回 None。"""
     if not output_dir:
         return None
-    root = (DATA_ROOT / output_dir).resolve()
+    root = (DATA_ROOT / _posix(output_dir)).resolve()
     if DATA_ROOT.resolve() not in root.parents:
         return None
     return _states(root)
@@ -89,7 +94,7 @@ def _resolve(output_dir: str | None, state: str | None = None) -> Path:
     if not output_dir:
         raise sim.SimulationError(404, NO_LAYERS)
     root = DATA_ROOT.resolve()
-    p = (DATA_ROOT / output_dir).resolve()
+    p = (DATA_ROOT / _posix(output_dir)).resolve()
     if root not in p.parents:
         raise sim.SimulationError(404, NO_LAYERS)
     m = _states(p)
@@ -304,7 +309,7 @@ def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
     if row is None:
         raise sim.SimulationError(404, sim.NOT_FOUND)
-    root = (DATA_ROOT / (row["output_dir"] or "")).resolve()
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
     p = root / "hotspots.json"
     if DATA_ROOT.resolve() not in root.parents or not p.is_file():
         raise sim.SimulationError(404, NO_HOTSPOTS)
@@ -397,7 +402,7 @@ def import_delivery(conn: psycopg.Connection, path: Path, created_by: str | None
         out_root = run_dir
     if DATA_ROOT.resolve() not in out_root.parents:
         raise SystemExit(f"成果目录须在 {DATA_ROOT} 之下：{out_root}")
-    output_dir = str(out_root.relative_to(DATA_ROOT.resolve()))
+    output_dir = out_root.relative_to(DATA_ROOT.resolve()).as_posix()   # Windows 上登记也写正斜杠，Linux 容器才读得到
     s = _summary(run_dir)
     scenario_path = (run_dir / s["outputs"].get("swmm_input", "missing")).parent / "scenario.json"
     sc = json.loads(scenario_path.read_text(encoding="utf-8")) if scenario_path.is_file() else {}
@@ -507,7 +512,7 @@ def effect(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
         raise sim.SimulationError(404, sim.NOT_FOUND)
     if not row["output_dir"]:
         raise sim.SimulationError(404, NO_LAYERS)
-    p = (DATA_ROOT / row["output_dir"]).resolve()
+    p = (DATA_ROOT / _posix(row["output_dir"])).resolve()
     if DATA_ROOT.resolve() not in p.parents or _states(p) is None:
         raise sim.SimulationError(422, NO_EFFECT)
     try:
@@ -526,7 +531,7 @@ def perf(conn: psycopg.Connection, run_id: int, vs: str | None, h: float | None)
         raise sim.SimulationError(404, sim.NOT_FOUND)
     if not row["output_dir"]:
         raise sim.SimulationError(404, NO_LAYERS)
-    p = (DATA_ROOT / row["output_dir"]).resolve()
+    p = (DATA_ROOT / _posix(row["output_dir"])).resolve()
     m = _states(p) if DATA_ROOT.resolve() in p.parents else None
     if m is None:
         raise sim.SimulationError(422, NO_EFFECT)

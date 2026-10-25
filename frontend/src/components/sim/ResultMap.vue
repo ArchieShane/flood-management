@@ -53,9 +53,14 @@ const props = defineProps({
   fitPonds: { type: Boolean, default: false },     // 溢水点载入后飞到它们一带（效果分析）
   l2Ponds: { type: Array, default: null },         // 已建成调蓄塘（sim_l2.ponds），给了就画
   l2Note: { type: String, default: '' },           // 第二道视图的底图说明
+  // RD-A 全套成果：有自己的积水点算法（SIM 编号，见 RdaPanels），不再出「溢水点」及其溢水量；
+  // simPoints = 算法给的积水点 [{ id, lat, lon, vol, color }]，画在这里，点圆点往外抛 simpoint
+  noOverflow: { type: Boolean, default: false },
+  simPoints: { type: Array, default: null },
+  simSelected: { type: String, default: null },
 })
 /** 取回的图层元数据与积水片区往外抛一份，详情页右侧总览（RunOverview）直接用，不再重复请求 */
-const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots'])
+const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots', 'simpoint'])
 
 /** 分档着色：**水越深颜色越深**（单色蓝阶，浅蓝 → 藏青）。
  *  原先是暗底图上「越深越亮」，用户会把深色格误读成积水点；深色要看得出，底图因此换成浅灰。 */
@@ -139,7 +144,7 @@ const stats = computed(() => {
     ['area01', `${fmtKm2(r.inundated_area_ge_0_01m2)} km²`],
     ['area05', `${fmtKm2(r.inundated_area_ge_0_05m2)} km²`],
     ['finalArea', `${fmtKm2(r.final_inundated_area_ge_0_01m2)} km²`],
-    ['overflowVol', `${fmtInt(Math.round(meta.value?.coupling?.total_swmm_to_anuga_m3 ?? 0))} m³`],
+    ...(props.noOverflow ? [] : [['overflowVol', `${fmtInt(Math.round(meta.value?.coupling?.total_swmm_to_anuga_m3 ?? 0))} m³`]]),
   ]
 })
 
@@ -173,8 +178,10 @@ const nowStats = computed(() => {
   if (!x) return null
   return [
     ['now', fmtClock(x.time_minutes)],
-    ['pondNow', x.ponding == null ? '—' : `${x.ponding}${x.ponding_total != null ? ` / ${x.ponding_total}` : ''}`],
-    ['overflowNow', x.overflow_m3 == null ? '—' : `${fmtInt(Math.round(x.overflow_m3))} m³`],
+    ...(props.noOverflow ? [] : [
+      ['pondNow', x.ponding == null ? '—' : `${x.ponding}${x.ponding_total != null ? ` / ${x.ponding_total}` : ''}`],
+      ['overflowNow', x.overflow_m3 == null ? '—' : `${fmtInt(Math.round(x.overflow_m3))} m³`],
+    ]),
     [x.area_basis === 'triangle' ? 'areaNowTri' : 'areaNowCell', `${fmtKm2(x.area_m2)} km²`],
     ['depthNow', `${fmtM(x.depth_m)} m`],
   ]
@@ -334,6 +341,7 @@ function focusPond(rank, fly = true) {
 /** 溢水点单独取：首次要现算（全市 250 m 约 6 s），不挡水深图层。成因文案随语言，切语言重取。 */
 async function loadPonding() {
   pondErr.value = ''
+  if (props.noOverflow) { emit('ponding', null, ''); return }
   try {
     const p = await fetchSimulationPonding(props.runId, props.pondingState || props.state)
     ponding.value = p
@@ -893,6 +901,7 @@ watch(mode, m => {
 
 onMounted(async () => {
   initMap()
+  drawSim()
   map.on('zoomend', () => netOn.value && drawNetwork())
   drawL2()
   try {
@@ -916,12 +925,33 @@ onMounted(async () => {
   // 逐帧当前值（小，一次取完）；取不到就退回按本帧格子算
   fetchSimulationTimeline(props.runId, props.state).then(x => (timeline.value = x)).catch(() => {})
 })
+/* ---------------- 积水点算法的点（RD-A） ---------------- */
+const simOn = ref(true)
+let simLayer = null
+function drawSim() {
+  simLayer?.remove()
+  simLayer = null
+  if (!map || !props.simPoints?.length || !simOn.value) return
+  simLayer = L.layerGroup()
+  for (const p of props.simPoints) {
+    const sel = p.id === props.simSelected
+    const m = L.circleMarker([p.lat, p.lon], {
+      radius: sel ? 11 : Math.max(5, Math.min(12, 4 + Math.sqrt((p.vol || 0) / 60))),
+      color: sel ? '#4786c9' : '#fff', weight: sel ? 3 : 1.5, fillColor: p.color || '#d9434b', fillOpacity: 0.95,
+    }).addTo(simLayer)
+    m.bindTooltip(p.label || p.id, { className: 'rm-tip' })
+    m.on('click', () => emit('simpoint', p.id))
+  }
+  simLayer.addTo(map)
+}
+watch(() => [props.simPoints, props.simSelected, simOn.value], drawSim)
 /** 飞到某个坐标（方案效果卡片点名时用：那边的点号是基线态的，和当前态的溢水点号对不上） */
 function flyToPoint(lat, lon) {
   if (map && lat != null) map.flyTo([lat, lon], Math.max(map.getZoom(), 16), { duration: 0.6 })
 }
 defineExpose({ focusPond, flyToPoint, focusL2Pond, focusHotspot })
 onBeforeUnmount(() => {
+  simLayer?.remove()
   facLayer?.remove()
   stop()
   map?.remove()
@@ -936,7 +966,7 @@ onBeforeUnmount(() => {
         <button :class="{ on: mode === 'max' }" @click="mode = 'max'">{{ t('sim.map.modeMax') }}</button>
         <button :class="{ on: mode === 'time' }" @click="mode = 'time'">{{ t('sim.map.modeTime') }}</button>
       </div>
-      <label class="rm-pond-toggle" :class="{ off: !ponding }" :title="t('sim.ponding.toggleTip')">
+      <label v-if="!noOverflow" class="rm-pond-toggle" :class="{ off: !ponding }" :title="t('sim.ponding.toggleTip')">
         <input v-model="pondOn" type="checkbox" :disabled="!ponding" />
         {{ t('sim.ponding.toggle') }}<template v-if="ponding">（{{ ponding.summary.cluster_count }}）</template>
       </label>
@@ -955,6 +985,10 @@ onBeforeUnmount(() => {
       <label v-if="sto && !fac" class="rm-pond-toggle">
         <input v-model="stoOn" type="checkbox" />
         {{ t('sim.l2.stoToggle') }}（{{ stoCounts.ponds }}）
+      </label>
+      <label v-if="simPoints?.length" class="rm-pond-toggle">
+        <input v-model="simOn" type="checkbox" />
+        {{ t('sim.rda.simToggle') }}（{{ simPoints.length }}）
       </label>
       <label v-if="fac" class="rm-pond-toggle" :title="t('sim.fac.tip')">
         <input v-model="facOn" type="checkbox" />
@@ -1046,7 +1080,7 @@ onBeforeUnmount(() => {
 
     <HotspotPanel v-if="hot" :data="hot" :state="hotState" :active="hotActive" @focus="focusHotspot" />
     <ResidualPanel v-if="meta && residual && (showResidual || resOn)" :data="residual" :active="resActive" @focus="focusRes" />
-    <PondingPanel v-if="meta" :data="ponding" :error="pondErr" :active="pondActive" @focus="focusPond" />
+    <PondingPanel v-if="meta && !noOverflow" :data="ponding" :error="pondErr" :active="pondActive" @focus="focusPond" />
 
     <p v-if="error" class="rm-err">{{ error }}</p>
     <p v-if="netErr" class="rm-err">{{ t('sim.network.failed') }}{{ netErr }}</p>

@@ -25,13 +25,15 @@ from pathlib import Path
 
 from .sim_sww import SwwError, parse_delivery_name
 
-KINDS = {"native": "sim_native（原生计算结果：ANUGA .sww + SWMM .rpt）", "sww": "sim_sww（旧 .sww 交付）", "city": "sim_city（全市一二维）", "c1": "sim_c1（一二维 npz 交付）"}
+KINDS = {"rda": "sim_rda（RD-A 全套成果）", "native": "sim_native（原生计算结果：ANUGA .sww + SWMM .rpt）", "sww": "sim_sww（旧 .sww 交付）", "city": "sim_city（全市一二维）", "c1": "sim_c1（一二维 npz 交付）"}
 
 
 def detect(root: Path) -> str:
     """交付形状：`sww` | `city` | `c1`。名字不是交付形状直接报错（备份目录等）。"""
-    from . import sim_native
+    from . import sim_native, sim_rda
 
+    if sim_rda.is_rda(root):
+        return "rda"
     if sim_native.detect(root):
         return "native"
     region = parse_delivery_name(root.name)[0]
@@ -48,6 +50,9 @@ def detect(root: Path) -> str:
 def import_any(root: Path, by: str | None = None, only: list[str] | None = None, c2d: Path | None = None) -> tuple[str, int]:
     root = root.resolve()
     kind = detect(root)
+    if kind == "rda":
+        from . import sim_rda
+        return kind, sim_rda.import_all(root, by, only)
     if kind == "native":
         from . import sim_native
         return kind, sim_native.import_all(root, by, only)

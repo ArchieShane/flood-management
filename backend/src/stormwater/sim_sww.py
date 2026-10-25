@@ -99,7 +99,7 @@ COLUMNS = {"L1": "line1", "L2": "line2_current", "L2+planned": "line2_planned",
 PARENT = {"L1": None, "L2": "L1", "L2+planned": "L2", "L2+suggested": "L2+planned"}
 #: 交付目录名：`<片区…>_<雨深>mm<历时>h[_<网格>m | _G<网格>]`，如 `Mussafah_00_61mm2h`、`C1_模型版_61mm2h_5m`、`YAS_61mm2h_G5`
 _REGION_RX = re.compile(r"^(?P<region>.+?)_(?P<depth>\d+(?:\.\d+)?)mm(?P<dur>\d+(?:\.\d+)?)h"
-                        r"(?:_G(?P<g>\d+(?:\.\d+)?)|_(?P<m>\d+(?:\.\d+)?)m)?$")
+                        r"(?:_G(?P<g>\d+(?:\.\d+)?)|_(?P<m>\d+(?:\.\d+)?)m)?(?:_全套成果)?$")
 #: 历史交付（无网格后缀）的标称网格；输出键只在网格不等于它时才带后缀，已抽好的目录名因此不变
 LEGACY_RES_M = 15.0
 
@@ -137,6 +137,26 @@ def parse_delivery_name(name: str) -> tuple[str, float, float, float | None]:
         raise SwwError(f"交付目录名 {name} 不是「片区_雨深mm历时h[_网格m]」的形状")
     res = m.group("g") or m.group("m")
     return m.group("region"), float(m.group("depth")), float(m.group("dur")), float(res) if res else None
+
+
+def norm_geom(g: dict) -> dict:
+    """GeoJSON 几何兜底：RD-A 成果的 `计算域.geojson` 把 Polygon 写成了「一个环」（坐标少一层嵌套），补回去。"""
+    c = g.get("coordinates")
+    if g.get("type") == "Polygon" and c and isinstance(c[0], list) and c[0] and isinstance(c[0][0], (int, float)):
+        return {**g, "coordinates": [c]}
+    return g
+
+
+def _first_xy(c):
+    while isinstance(c, list) and c and isinstance(c[0], list):
+        c = c[0]
+    return c
+
+
+def is_projected(g: dict) -> bool:
+    """坐标已经是米（UTM）而不是经纬度：RD-A 成果的 `计算域.geojson` 标了 CRS84，坐标却是 EPSG:32640。"""
+    xy = _first_xy(g.get("coordinates") or [])
+    return bool(xy) and abs(xy[0]) > 360
 
 
 def _parse_name(root: Path) -> tuple[str, float, float]:

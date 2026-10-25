@@ -1,0 +1,438 @@
+<script setup>
+/* RD-A 全套成果的明细面板：积水点（阈值可调重算）/ L3 派单 / 设施 / 判据 / L2+suggested 措施。
+   `/rda` 页的右栏和仿真任务详情页（RDA 那条）共用这一份；数据与选中项都在 `useRda()` 里，传进来的 `rda`。
+   点行时往外抛 `locate`，由外面的地图去飞 / 画高亮；本组件不碰地图。
+   `overview` 插槽给 /rda 页放它自己的概览（详情页已有对比 / 效果分析，不放）。 */
+import { computed, useSlots } from 'vue'
+
+import { DEPTH_CHOICES, ledgerId } from '../../composables/useRda'
+import { tr, trj } from '../../i18n/rda'
+import '../../styles/rda.css'
+
+const props = defineProps({
+  rda: { type: Object, required: true },
+  tab: { type: String, default: 'ponding' },
+  label: { type: String, default: '' },        // 当前态的名字（标题里用）
+})
+const emit = defineEmits(['update:tab', 'locate'])
+const slots = useSlots()
+const R = props.rda   // useRda() 返回的是一束 ref，模板里 .value 会自动解包
+
+const f1 = v => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 }))
+const f2 = v => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }))
+const int = v => (v == null ? '—' : Math.round(Number(v)).toLocaleString('en-US'))
+const musd = v => (v == null ? '—' : (Number(v) / 1e6).toFixed(2))
+const dn = m => Math.round((m || 0) * 1000)
+
+const KIND_COLOR = {
+  ps_l1: '#9aa3ad', mobile: '#e0a44e', ps_planned: '#a07be0',
+  tank: '#4786c9', gpipe: '#3fb6a8', conv: '#d9434b', sump: '#4dc3ee',
+}
+const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
+const VERDICT_COLOR = { 自然退干: '#66c56b', 'L3 按时退干': '#66c56b', 'L3 已派、超时': '#e0a44e', 只监测: '#7a838c' }
+const tallyWord = k => tr(k === 'pass' ? '通过' : k === 'review' ? '需复核' : '缺数据')
+
+const setTab = t => emit('update:tab', t)
+
+function pickPoint(id) {
+  R.selPoint.value = id
+  const p = (R.ponding.value?.points || []).find(x => x.id === id)
+  if (p) emit('locate', { lat: p.lat, lon: p.lon, kind: 'point', id })
+}
+async function pickMeasure(id) {
+  setTab('suggested')
+  await R.pickMeasure(id)
+  const m = R.measureById.value[id]
+  if (m) emit('locate', { lat: m.lat, lon: m.lon, kind: 'measure', id })
+}
+function pickFacilityById(id) {
+  const f = (R.fac.value?.geojson.features || []).find(x => x.properties['编号'] === id)
+  if (!f) return
+  R.selFac.value = f.properties
+  const lid = ledgerId(id)
+  if (R.isSugg.value && R.measureById.value[lid]) pickMeasure(lid)
+  else {
+    setTab('facilities')
+    const [lo, la] = f.geometry.type === 'Point' ? f.geometry.coordinates : [f.properties['经度'], f.properties['纬度']]
+    if (la != null) emit('locate', { lat: la, lon: lo, kind: 'facility', id })
+  }
+}
+defineExpose({ pickMeasure, pickFacilityById, pickPoint })
+
+function measureDrain(m) {
+  // 「怎么排水」：照台账字段拼成一句人话，不另编口径
+  const bits = []
+  if (m.type.includes('调蓄池') && !m.type.includes('泵站 →')) {
+    bits.push(tr('截流井 {w} 的溢流重力进入地下池', { w: m.intercept_wells }))
+    bits.push(tr('池容 {v} m³、有效水深 {d} m、池底 {f} m、开挖 {e} m', { v: int(m.tank_m3), d: f1(m.effective_depth_m), f: f2(m.invert_m), e: f1(m.excavation_m) }))
+    bits.push(tr('雨后由排空泵自动排回管网'))
+  }
+  if (m.pumps) bits.push(tr('{n} 台泵 × {q} m³/s（设计流量 {d} m³/s）', { n: m.pumps, q: f2(m.pump_q_m3s), d: f2(m.design_q_m3s) }))
+  if (m.pipe_len_m && m.pipe_parallel) {
+    bits.push(tr('压力管 {l} m、DN{d}×{p}、峰值流速 {v} m/s', { l: int(m.pipe_len_m), d: dn(m.pipe_dia_m), p: m.pipe_parallel, v: f2(m.velocity_ms) }))
+  } else if (m.pipe_len_m) {
+    bits.push(tr('重力管（截流井→池）{l} m、DN{d}', { l: int(m.pipe_len_m), d: dn(m.pipe_dia_m) }))
+  }
+  if (m.outfall) bits.push(tr('排到新建排海口 {o}', { o: m.outfall }))
+  return bits
+}
+
+const hasOverview = computed(() => !!slots.overview)
+/** 本态设施图层里各类型的个数（逐级累加，含前面各态） */
+const facCounts = computed(() => {
+  const out = {}
+  for (const f of R.fac.value?.geojson.features || []) out[f.properties.kind] = (out[f.properties.kind] || 0) + 1
+  return out
+})
+</script>
+
+<template>
+  <div class="rda-ui">
+    <nav class="tabs">
+      <button v-if="hasOverview" :class="{ on: tab === 'overview' }" @click="setTab('overview')">{{ tr('概览') }}</button>
+      <button :class="{ on: tab === 'ponding' }" @click="setTab('ponding')">{{ tr('积水点') }} {{ rda.ponding.value?.count ?? '' }}</button>
+      <button :class="{ on: tab === 'l3' }" @click="setTab('l3')">{{ tr('L3 派单') }}</button>
+      <button :class="{ on: tab === 'facilities' }" @click="setTab('facilities')">{{ tr('设施') }}</button>
+      <button :class="{ on: tab === 'criteria' }" @click="setTab('criteria')">{{ tr('判据') }}</button>
+      <button v-if="rda.isSugg.value" :class="{ on: tab === 'suggested', sugg: true }" @click="setTab('suggested')">
+        {{ tr('Suggested 措施') }} {{ rda.suggested.value?.measures.length ?? '' }}
+      </button>
+    </nav>
+
+    <!-- 概览（只有 /rda 页给） -->
+    <div v-if="tab === 'overview' && hasOverview" class="pane"><slot name="overview" /></div>
+
+    <!-- 积水点 -->
+    <div v-else-if="tab === 'ponding'" class="pane">
+      <div class="card thr">
+        <h4>{{ tr('积水点阈值') }}</h4>
+        <div class="thr-row">
+          <label>{{ tr('水深 ≥') }}
+            <select v-model.number="rda.pf.value.depth">
+              <option v-for="d in DEPTH_CHOICES" :key="d" :value="d">{{ d.toFixed(2) }} m</option>
+            </select>
+          </label>
+          <label>{{ tr('连片 ≥') }} <input v-model.number="rda.pf.value.area" type="number" min="0" step="50" /> m²</label>
+          <label>{{ tr('持续 ≥') }} <input v-model.number="rda.pf.value.dur" type="number" min="0" step="0.25" /> h</label>
+          <button class="go" :disabled="!rda.formDirty.value" @click="rda.applyThreshold()">{{ tr('重算') }}</button>
+        </div>
+        <p class="muted small">
+          <template v-if="rda.ponding.value?.custom">{{ tr('已按所给阈值从二维结果重算：三角网共边连片，不扣地表塘占地，没有 L3 承接与评估剔除标记。') }}</template>
+          <template v-else>{{ tr('现在是成果自带的清单（0.15 / 0.30 m，100 m²，0.5 h；含 L3 承接与剔除标记）。改任一阈值再点「重算」会从二维结果现算。') }}</template>
+          <a v-if="!rda.isDelivered.value" href="#" @click.prevent="rda.presetDepth(0.15)">{{ tr('回到成果自带') }}</a>
+        </p>
+      </div>
+      <div class="row">
+        <span class="seg">
+          <button :class="{ on: rda.pointFilter.value === 'all' }" @click="rda.pointFilter.value = 'all'">{{ tr('全部') }}</button>
+          <button :class="{ on: rda.pointFilter.value === 'notRecede' }" @click="rda.pointFilter.value = 'notRecede'">{{ tr('未退') }}</button>
+          <button v-if="!rda.ponding.value?.custom" :class="{ on: rda.pointFilter.value === 'l3' }" @click="rda.pointFilter.value = 'l3'">{{ tr('要 L3') }}</button>
+          <button v-if="!rda.ponding.value?.custom" :class="{ on: rda.pointFilter.value === 'excluded' }" @click="rda.pointFilter.value = 'excluded'">{{ tr('剔除区') }}</button>
+        </span>
+        <span class="muted">
+          {{ tr('{n} 片 · 峰值合计 {v} m³ · 未退 {k}', { n: rda.visiblePoints.value.length, v: int(rda.ponding.value?.peak_vol_sum_m3), k: rda.ponding.value?.not_receded }) }}
+        </span>
+      </div>
+      <label class="small"><input v-model="rda.nearOnly.value" type="checkbox" /> {{ tr('只看客户热点 200 m 内') }}</label>
+      <p class="muted small">{{ tr('编号 SIM-态-序号是模型算出的积水点，不是客户热点；按峰值积水量降序，只在同一状态、同一阈值内有效。') }}</p>
+      <div v-if="rda.selectedPoint.value" class="card">
+        <h4>
+          {{ rda.selectedPoint.value.id }}
+          <span v-if="rda.selectedPoint.value.l3" class="pill" :style="{ background: LEVEL_COLOR[rda.selectedPoint.value.l3.level] }">{{ tr(rda.selectedPoint.value.l3.level) }}</span>
+          <span v-if="rda.selectedPoint.value.excluded" class="pill gray">{{ tr('评估剔除区') }}</span>
+        </h4>
+        <dl class="kv">
+          <dt>{{ tr('最大水深') }}</dt><dd>{{ f2(rda.selectedPoint.value.hmax_m) }} m（{{ tr('地面高程') }} {{ f2(rda.selectedPoint.value.ground_z_m) }} m）</dd>
+          <dt>{{ tr('面积') }}</dt><dd>{{ int(rda.selectedPoint.value.area_m2) }} m²（{{ tr('其中') }} ≥0.30 m：{{ int(rda.selectedPoint.value.area_ge030_m2) }} m²）</dd>
+          <dt>{{ tr('峰值积水量') }}</dt><dd>{{ int(rda.selectedPoint.value.vol_peak_m3) }} m³，{{ tr('出现在') }} {{ f2(rda.selectedPoint.value.t_peak_h) }} h</dd>
+          <dt>{{ tr('持续') }}</dt><dd>{{ f2(rda.selectedPoint.value.duration_h) }} h</dd>
+          <dt>{{ tr('退水') }}</dt>
+          <dd>
+            <b :class="rda.selectedPoint.value.receded ? 'ok' : 'bad'">{{ rda.selectedPoint.value.receded ? tr('已退') : tr('未退') }}</b>
+            <template v-if="rda.selectedPoint.value.receded"> · {{ tr('峰值后') }} {{ f2(rda.selectedPoint.value.recede_h) }} h</template>
+            <template v-else> · {{ tr('到 {t} h 仍有 {v} m³', { t: rda.selectedPoint.value.t_end_h, v: int(rda.selectedPoint.value.vol_end_m3) }) }}</template>
+          </dd>
+          <dt>{{ tr('最近客户热点') }}</dt>
+          <dd>{{ rda.selectedPoint.value.nearest_client_hotspot }}（{{ int(rda.selectedPoint.value.nearest_client_hotspot_dist_m) }} m）</dd>
+          <dt>{{ tr('200 m 内热点') }}</dt>
+          <dd>
+            <template v-if="rda.selectedPoint.value.near_hotspots.length">
+              <span v-for="h in rda.selectedPoint.value.near_hotspots" :key="h.hotspot" class="chip">{{ h.hotspot }} {{ h.dist_m }} m</span>
+            </template>
+            <template v-else>{{ tr('无') }}</template>
+          </dd>
+          <template v-if="rda.selectedPoint.value.excluded">
+            <dt>{{ tr('剔除说明') }}</dt><dd>{{ trj(rda.selectedPoint.value.exclusion_note) }}（{{ tr('扣除后') }} {{ int(rda.selectedPoint.value.area_after_exclusion_m2) }} m²）</dd>
+          </template>
+          <dt>{{ tr('连片方式') }}</dt><dd>{{ rda.selectedPoint.value.adjacency === 'mesh' ? tr('三角网共边') : tr('单元近邻近似') }}</dd>
+        </dl>
+        <template v-if="rda.selectedPoint.value.l3">
+          <h5>{{ tr('L3 承接') }}</h5>
+          <dl class="kv">
+            <dt>{{ tr('结论') }}</dt><dd>{{ tr(rda.selectedPoint.value.l3.verdict) }}</dd>
+            <dt>{{ tr('定级依据') }}</dt><dd>{{ trj(rda.selectedPoint.value.l3.basis) }}</dd>
+            <dt>{{ tr('L3 手段') }}</dt><dd>{{ tr(rda.selectedPoint.value.l3.measure) }}</dd>
+            <dt>{{ tr('退干期限') }}</dt><dd>{{ f1(rda.selectedPoint.value.l3.deadline_h) }} h（{{ tr('自然退干') }} {{ rda.selectedPoint.value.l3.natural_drain_h ?? '—' }} h）</dd>
+            <dt>{{ tr('300 m 内单位') }}</dt><dd>{{ rda.selectedPoint.value.l3.units_300m || '—' }}</dd>
+            <dt>Island A13</dt>
+            <dd>{{ tr(rda.selectedPoint.value.l3.island.result) }} · {{ rda.selectedPoint.value.l3.island.units ?? 0 }} {{ tr('台/辆') }} · {{ tr('到位') }} {{ rda.selectedPoint.value.l3.island.arrive_h ?? '—' }} h · {{ tr('完成') }} {{ rda.selectedPoint.value.l3.island.done_h ?? '—' }} h</dd>
+            <dt>{{ tr('ADM 全驻地') }}</dt>
+            <dd>{{ tr(rda.selectedPoint.value.l3.adm.result) }} · {{ rda.selectedPoint.value.l3.adm.units ?? 0 }} {{ tr('台/辆') }} · {{ tr('到位') }} {{ rda.selectedPoint.value.l3.adm.arrive_h ?? '—' }} h · {{ tr('完成') }} {{ rda.selectedPoint.value.l3.adm.done_h ?? '—' }} h</dd>
+            <template v-if="rda.selectedPoint.value.l3.note"><dt>{{ tr('备注') }}</dt><dd>{{ tr(rda.selectedPoint.value.l3.note) }}</dd></template>
+          </dl>
+        </template>
+      </div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>{{ tr('编号') }}</th><th>{{ tr('最深 m') }}</th><th>{{ tr('面积 m²') }}</th><th>{{ tr('峰值 m³') }}</th><th>{{ tr('退水') }}</th>
+            <th v-if="!rda.ponding.value?.custom">{{ tr('等级') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="p in rda.visiblePoints.value" :key="p.id" :class="{ cur: p.id === rda.selPoint.value }" @click="pickPoint(p.id)">
+            <td>{{ p.id.replace('SIM-', '') }}<i v-if="p.excluded" class="pill gray">{{ tr('剔') }}</i></td>
+            <td>{{ f2(p.hmax_m) }}</td><td>{{ int(p.area_m2) }}</td><td>{{ int(p.vol_peak_m3) }}</td>
+            <td :class="p.receded ? '' : 'bad'">{{ p.receded ? f1(p.recede_h) + ' h' : tr('未退') }}</td>
+            <td v-if="!rda.ponding.value?.custom">
+              <span v-if="p.l3" class="pill" :style="{ background: LEVEL_COLOR[p.l3.level] }">{{ tr(p.l3.level) }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- L3 -->
+    <div v-else-if="tab === 'l3'" class="pane">
+      <template v-if="rda.l3.value">
+        <h3>{{ tr('L3 承接与派单') }}</h3>
+        <p class="muted small">{{ tr(rda.l3.value.basis?.points) }}</p>
+        <div class="kpis">
+          <div><b>{{ rda.l3.value.summary.n }}</b><span>{{ tr('进入 L3 的残余积水点') }}</span></div>
+          <div><b>{{ rda.l3.value.summary.n_nat_ok }}</b><span>{{ tr('自然退干达标') }}</span></div>
+          <div><b>{{ rda.l3.value.summary.n_l3 }}</b><span>{{ tr('需 L3 处置') }}</span></div>
+          <div><b>{{ rda.l3.value.summary.n_beyond }}</b><span>{{ tr('超出 L3 单点能力（应由 L2 解决）') }}</span></div>
+          <div><b>{{ rda.l3.value.summary.n_noexpo }}</b><span>{{ tr('无暴露，只监测') }}</span></div>
+          <div><b>{{ int(rda.l3.value.summary.vol_beyond_m3) }}</b><span>{{ tr('超出能力的峰值积水量 m³') }}</span></div>
+        </div>
+        <h4>{{ tr('后果等级') }}</h4>
+        <div class="levels">
+          <span v-for="(n, lv) in rda.l3.value.summary.levels" :key="lv" class="pill" :style="{ background: LEVEL_COLOR[lv] }">{{ tr(lv) }} {{ n }}</span>
+        </div>
+        <h4>{{ tr('调度结果') }}</h4>
+        <table class="tbl">
+          <thead><tr><th>{{ tr('调度范围') }}</th><th>{{ tr('结果') }}</th><th>{{ tr('泵/车') }}</th><th>{{ tr('成本 AED') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="d in [rda.l3.value.dispatch.island, rda.l3.value.dispatch.adm]" :key="d.pool">
+              <td>{{ tr(d.pool_zh) }}</td>
+              <td><span v-for="(n, k) in d.counts" :key="k" class="chip" :style="{ borderColor: VERDICT_COLOR[k] }">{{ tr(k) }} {{ n }}</span></td>
+              <td>{{ tr('{p} 泵 / {t} 罐车', { p: d.pumps, t: d.tankers }) }}</td><td>{{ int(d.cost_aed) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted small">{{ tr('派单口径：') }}{{ tr(rda.l3.value.basis?.dispatch) }}。{{ tr(rda.l3.value.basis?.decide) }}。</p>
+        <template v-if="rda.l3.value.not_in_l3?.length">
+          <h4>{{ tr('未进入 L3 清单的积水点') }}</h4>
+          <ul class="plain"><li v-for="r in rda.l3.value.not_in_l3" :key="r['积水点']"><b>{{ r['积水点'] }}</b>：{{ tr(r['原因']) }}</li></ul>
+        </template>
+      </template>
+      <p v-else class="muted">{{ tr('这个状态没有 L3 承接汇总。') }}</p>
+    </div>
+
+    <!-- 设施 -->
+    <div v-else-if="tab === 'facilities'" class="pane">
+      <h3>{{ tr(label) }} · {{ tr('设施图层') }}</h3>
+      <p class="muted small">{{ tr('逐级累加：每个状态包含前面各状态的全部设施。') }}</p>
+      <table class="tbl">
+        <thead><tr><th>{{ tr('类型') }}</th><th>{{ tr('数量') }}</th></tr></thead>
+        <tbody>
+          <tr v-for="(n, k) in facCounts" :key="k"><td><u class="sw" :style="{ background: KIND_COLOR[k] }" />{{ rda.kindName(k) }}</td><td>{{ n }}</td></tr>
+        </tbody>
+      </table>
+      <div v-if="rda.selFac.value" class="card">
+        <h4>{{ tr(rda.selFac.value['类型']) }} · {{ rda.selFac.value['编号'] }} <small class="muted">{{ tr(rda.selFac.value['防线层级']) }}</small></h4>
+        <dl class="kv">
+          <template v-if="rda.selFac.value['流量 L/s']"><dt>{{ tr('流量') }}</dt><dd>{{ int(rda.selFac.value['流量 L/s']) }} L/s</dd></template>
+          <template v-if="rda.selFac.value['池容 m³']"><dt>{{ tr('池容') }}</dt><dd>{{ int(rda.selFac.value['池容 m³']) }} m³</dd></template>
+          <template v-if="rda.selFac.value.p_depth"><dt>{{ tr('有效水深 / 池底') }}</dt><dd>{{ f1(rda.selFac.value.p_depth) }} m / {{ f2(rda.selFac.value.p_floor) }} m</dd></template>
+          <template v-if="rda.selFac.value.p_n"><dt>{{ tr('泵台数') }}</dt><dd>{{ rda.selFac.value.p_n }}</dd></template>
+          <template v-if="rda.selFac.value.p_path"><dt>{{ tr('管长') }}</dt><dd>{{ int(rda.selFac.value.p_path) }} m</dd></template>
+          <template v-if="rda.selFac.value.p_size"><dt>{{ tr('泵规格') }}</dt><dd>{{ rda.selFac.value.p_size }}</dd></template>
+          <template v-if="rda.selFac.value.p_on != null"><dt>{{ tr('开 / 停泵水位') }}</dt><dd>{{ f2(rda.selFac.value.p_on) }} / {{ f2(rda.selFac.value.p_off) }} m</dd></template>
+          <template v-if="rda.selFac.value.p_hotspot"><dt>{{ tr('服务热点') }}</dt><dd>{{ rda.selFac.value.p_hotspot }}</dd></template>
+          <dt>{{ tr('说明') }}</dt><dd>{{ tr(rda.selFac.value['说明']) }}</dd>
+        </dl>
+        <h5>{{ tr('本场模拟里的实际表现') }}</h5>
+        <dl class="kv">
+          <template v-if="rda.selFac.value['本场模拟_vol_m3'] != null"><dt>{{ tr('累计处理水量') }}</dt><dd>{{ int(rda.selFac.value['本场模拟_vol_m3']) }} m³</dd></template>
+          <template v-if="rda.selFac.value['本场模拟_util_pct'] != null"><dt>{{ tr('利用率') }}</dt><dd>{{ f1(rda.selFac.value['本场模拟_util_pct']) }} %</dd></template>
+          <template v-if="rda.selFac.value['本场模拟_max_m3'] != null">
+            <dt>{{ tr('池内最大蓄水') }}</dt><dd>{{ int(rda.selFac.value['本场模拟_max_m3']) }} m³（{{ f1(rda.selFac.value['本场模拟_max_pct']) }} % {{ tr('满') }}）</dd>
+          </template>
+        </dl>
+      </div>
+      <h4>{{ tr('设施清单') }}</h4>
+      <table class="tbl small-t">
+        <thead><tr><th>{{ tr('层级') }}</th><th>{{ tr('编号') }}</th><th>{{ tr('类型') }}</th><th>{{ tr('流量 L/s') }}</th><th>{{ tr('池容 m³') }}</th></tr></thead>
+        <tbody>
+          <tr v-for="r in rda.fac.value?.list" :key="r['编号']" @click="pickFacilityById(r['编号'])">
+            <td>{{ tr(r['防线层级']) }}</td><td>{{ r['编号'] }}</td><td>{{ tr(r['类型']) }}</td>
+            <td>{{ int(r['流量 L/s']) }}</td><td>{{ int(r['池容 m³']) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 判据 -->
+    <div v-else-if="tab === 'criteria' && rda.crit.value" class="pane">
+      <h3>{{ tr(label) }} · {{ tr('四项判据') }}</h3>
+      <p class="muted small">{{ tr('热点 200 m 内，四项全过才算达标。') }}</p>
+      <ul class="plain"><li v-for="(t, k) in rda.crit.value.rules" :key="k"><b>{{ k }}</b> {{ tr(t) }}</li></ul>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>{{ tr('热点') }}</th><th>{{ tr('最大 m') }}</th><th>≥0.30 ha</th><th>≥0.15 ha·h</th><th>{{ tr('退到 0.10 m') }}</th><th>A</th><th>B</th><th>C</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="h in rda.crit.value.hotspots" :key="h.id">
+            <td>{{ h.id }}</td><td>{{ f2(h.max_m) }}</td><td>{{ f2(h.ge030_ha) }}</td>
+            <td>{{ f2(h.ge015_ha_h) }} <small class="muted">/ {{ f2(h.base_ge015_ha_h) }}</small></td>
+            <td>{{ h.recede_h_after_rain == null ? tr('未退') : f1(h.recede_h_after_rain) + ' h' }}</td>
+            <td v-for="k in ['A', 'B', 'C']" :key="k" :class="h.pass[k] ? 'ok' : 'bad'">{{ h.pass[k] ? '✓' : '✗' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted small">{{ tr('≥0.15 ha·h 一列斜杠后是 L2+planned 基准。') }}</p>
+      <div class="kpis">
+        <div><b :class="rda.crit.value.domain.pass_D ? 'ok' : 'bad'">{{ rda.crit.value.domain.pass_D ? tr('过') : tr('不过') }}</b><span>{{ tr('D 域级') }}</span></div>
+        <div><b>{{ f2(rda.crit.value.domain.deeper_ge005_ha) }}</b><span>{{ tr('比 planned 加深 ha') }}</span></div>
+        <div><b>{{ f2(rda.crit.value.domain.shallower_ge005_ha) }}</b><span>{{ tr('比 planned 变浅 ha') }}</span></div>
+        <div><b>{{ int(rda.crit.value.domain.peak_vol_m3) }}</b><span>{{ tr('全域峰值积水量 m³') }}</span></div>
+      </div>
+    </div>
+
+    <!-- Suggested 措施 -->
+    <div v-else-if="tab === 'suggested' && rda.suggested.value" class="pane">
+      <template v-if="rda.selectedMeasure.value">
+        <button class="back" @click="rda.selMeasure.value = null">‹ {{ tr('全部措施') }}</button>
+        <h3>{{ rda.selectedMeasure.value.id }} · {{ tr(rda.selectedMeasure.value.type) }}</h3>
+        <p class="muted">
+          {{ tr('服务热点') }} {{ rda.selectedMeasure.value.hotspot }} · {{ tr('占位造价') }} <b>{{ musd(rda.selectedMeasure.value.cost_usd) }}</b> {{ tr('百万美元') }} ·
+          <span class="pill amber">{{ tr(rda.selectedMeasure.value.buildability) }}</span>
+        </p>
+        <h4>{{ tr('怎么排水') }}</h4>
+        <ol class="steps"><li v-for="b in measureDrain(rda.selectedMeasure.value)" :key="b">{{ b }}</li></ol>
+        <h4>{{ tr('设计参数') }}</h4>
+        <dl class="kv">
+          <dt>{{ tr('截流井') }}</dt><dd>{{ rda.selectedMeasure.value.intercept_wells == null ? '—' : tr(String(rda.selectedMeasure.value.intercept_wells)) }}</dd>
+          <dt>{{ tr('截流井溢流量') }}</dt><dd>{{ int(rda.selectedMeasure.value.overflow_m3) }} m³（{{ tr('96 mm 两场取大') }}）</dd>
+          <template v-if="rda.selectedMeasure.value.tank_m3">
+            <dt>{{ tr('池容') }}</dt><dd>{{ int(rda.selectedMeasure.value.tank_m3) }} m³</dd>
+            <dt>{{ tr('有效水深 / 池底') }}</dt><dd>{{ f1(rda.selectedMeasure.value.effective_depth_m) }} m / {{ f2(rda.selectedMeasure.value.invert_m) }} m</dd>
+            <dt>{{ tr('开挖深度') }}</dt><dd>{{ f1(rda.selectedMeasure.value.excavation_m) }} m</dd>
+          </template>
+          <template v-if="rda.selectedMeasure.value.pumps">
+            <dt>{{ tr('泵') }}</dt><dd>{{ rda.selectedMeasure.value.pumps }} {{ tr('台') }} × {{ f2(rda.selectedMeasure.value.pump_q_m3s) }} m³/s</dd>
+            <dt>{{ tr('设计流量') }}</dt><dd>{{ f2(rda.selectedMeasure.value.design_q_m3s) }} m³/s</dd>
+            <dt>{{ tr('泵站场地') }}</dt><dd>{{ int(rda.selectedMeasure.value.station_area_m2) }} m²</dd>
+          </template>
+          <template v-if="rda.selectedMeasure.value.pipe_len_m">
+            <dt>{{ rda.selectedMeasure.value.pipe_parallel ? tr('压力管') : tr('重力管') }}</dt>
+            <dd>
+              {{ int(rda.selectedMeasure.value.pipe_len_m) }} m · DN{{ dn(rda.selectedMeasure.value.pipe_dia_m) }}
+              <template v-if="rda.selectedMeasure.value.pipe_parallel">× {{ rda.selectedMeasure.value.pipe_parallel }} {{ tr('根') }} · {{ f2(rda.selectedMeasure.value.velocity_ms) }} m/s</template>
+            </dd>
+          </template>
+          <template v-if="rda.selectedMeasure.value.outfall"><dt>{{ tr('排口') }}</dt><dd>{{ rda.selectedMeasure.value.outfall }}</dd></template>
+          <dt>{{ tr('造价依据') }}</dt><dd>{{ tr(rda.selectedMeasure.value.cost_basis) }}</dd>
+        </dl>
+        <h4>{{ tr('本场模拟里的实际表现') }}</h4>
+        <ul class="plain">
+          <li v-for="p in rda.measureSim.value" :key="p['编号']">
+            {{ tr(p['类型']) }} {{ p['编号'] }}：
+            <template v-if="p['本场模拟_max_m3'] != null">{{ tr('池内最大蓄水') }} {{ int(p['本场模拟_max_m3']) }} m³（{{ f1(p['本场模拟_max_pct']) }} % {{ tr('满') }}）</template>
+            <template v-if="p['本场模拟_vol_m3'] != null">
+              {{ tr('累计处理') }} {{ int(p['本场模拟_vol_m3']) }} m³<template v-if="p['本场模拟_util_pct'] != null">，{{ tr('利用率') }} {{ f1(p['本场模拟_util_pct']) }} %</template>
+            </template>
+          </li>
+          <li v-if="!rda.measureSim.value.length" class="muted">{{ tr('成果里没有这项措施的逐场表现。') }}</li>
+        </ul>
+        <h4>{{ tr('需审批 / 许可') }}</h4>
+        <p class="muted">{{ trj(rda.selectedMeasure.value.approvals) }}</p>
+        <template v-if="rda.selectedMeasure.value.missing_data">
+          <h4>{{ tr('缺数据判不了') }}</h4><p class="muted">{{ trj(rda.selectedMeasure.value.missing_data) }}</p>
+        </template>
+        <h4>
+          {{ tr('WA-726 与空间约束检查') }}
+          <small v-if="rda.compliance.value" class="muted">
+            {{ tr('共 {n} 项：', { n: rda.compliance.value.checks.length }) }}
+            <template v-for="(n, k) in rda.compliance.value.tally" :key="k">{{ tallyWord(k) }} {{ n }}　</template>
+          </small>
+        </h4>
+        <label class="small"><input v-model="rda.showAllChecks.value" type="checkbox" /> {{ tr('显示全部（默认只列需复核 / 缺数据）') }}</label>
+        <ul class="plain checks">
+          <li v-for="c in rda.shownChecks.value" :key="c.check" :class="c.result">
+            <b>{{ tallyWord(c.result) }}</b> {{ tr(c.name) }}
+            <small v-if="c.detail" class="muted"> — {{ tr(c.detail) }}</small>
+            <small v-if="c.refs.length" class="muted"> [{{ c.refs.join(', ') }}]</small>
+          </li>
+        </ul>
+      </template>
+
+      <template v-else>
+        <h3>{{ tr('L2+suggested 我们的方案') }} · {{ tr('{n} 项措施', { n: rda.suggested.value.measures.length }) }}</h3>
+        <p class="muted small">{{ tr(rda.suggested.value.note) }}</p>
+        <div v-if="rda.costTotal.value" class="kpis">
+          <div><b>{{ rda.costTotal.value['数量'] }}</b><span>{{ tr('新增措施（项）') }}</span></div>
+          <div><b>{{ f1(rda.costTotal.value['占位造价 百万美元']) }}</b><span>{{ tr('占位造价 百万美元') }}</span></div>
+          <div><b>{{ rda.overview.value?.new_outfalls }}</b><span>{{ tr('新建排海口') }}</span></div>
+          <div v-for="s in rda.suggested.value.npv?.schemes.slice(1)" :key="s['方案']"><b>{{ f1(s['NPV 5% M USD']) }}</b><span>{{ tr('全寿命 NPV 5% 百万美元') }}</span></div>
+        </div>
+        <h4>{{ tr('按类型') }}</h4>
+        <table class="tbl">
+          <thead><tr><th>{{ tr('类型') }}</th><th>{{ tr('数量') }}</th><th>{{ tr('百万美元') }}</th><th>{{ tr('占比') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="r in rda.measureTypes.value" :key="r['设施类型']" :title="tr(r['造价依据'])">
+              <td>{{ tr(r['设施类型']) }}<div class="muted small">{{ tr(r['造价依据']) }}</div></td>
+              <td>{{ r['数量'] }}</td><td>{{ f2(r['占位造价 百万美元']) }}</td><td>{{ f1(r['占比 %']) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+        <h4>{{ tr('全寿命成本（NPV）') }}</h4>
+        <table v-if="rda.suggested.value.npv" class="tbl small-t">
+          <thead><tr><th>{{ tr('方案') }}</th><th>{{ tr('建设') }}</th><th>{{ tr('运维/年') }}</th><th>NPV 3%</th><th>5%</th><th>8%</th></tr></thead>
+          <tbody>
+            <tr v-for="s in rda.suggested.value.npv.schemes" :key="s['方案']">
+              <td>{{ tr(s['方案']) }}</td><td>{{ f1(s['建设费 M USD']) }}</td><td>{{ f2(s['每年运维 M USD']) }}</td>
+              <td>{{ f1(s['NPV 3% M USD']) }}</td><td>{{ f1(s['NPV 5% M USD']) }}</td><td>{{ f1(s['NPV 8% M USD']) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted small">{{ tr('单位：百万美元。造价分项：') }}
+          <span v-for="b in rda.suggested.value.npv?.breakdown" :key="b.item" class="chip">{{ tr(b.item) }} {{ b.m_usd }}（{{ b.pct }}%）</span>
+        </p>
+        <h4>{{ tr('逐项措施（点一行定位并看设计参数 / 怎么排水 / 合规）') }}</h4>
+        <table class="tbl small-t">
+          <thead><tr><th>{{ tr('编号') }}</th><th>{{ tr('类型') }}</th><th>{{ tr('热点') }}</th><th>{{ tr('池容 m³') }}</th><th>{{ tr('流量 m³/s') }}</th><th>{{ tr('百万美元') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="m in rda.suggested.value.measures" :key="m.id" @click="pickMeasure(m.id)">
+              <td>{{ m.id }}</td><td>{{ tr(m.type) }}</td><td>{{ m.hotspot }}</td>
+              <td>{{ int(m.tank_m3) }}</td><td>{{ m.design_q_m3s == null ? '—' : f2(m.design_q_m3s) }}</td><td>{{ musd(m.cost_usd) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <h4>{{ tr('地面取水口（{n}）', { n: rda.suggested.value.intakes.length }) }}</h4>
+        <table class="tbl small-t">
+          <thead><tr><th>{{ tr('取水口') }}</th><th>{{ tr('泵站') }}</th><th>{{ tr('热点') }}</th><th>{{ tr('类别') }}</th><th>{{ tr('坑底 m') }}</th><th>{{ tr('取水 m³/s') }}</th><th>{{ tr('到泵站 m') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="r in rda.suggested.value.intakes" :key="r['取水口']" :title="tr(r['说明'])">
+              <td>{{ r['取水口'] }}</td><td>{{ r['所属地面泵站'] }}</td><td>{{ r['服务热点'] }}</td><td>{{ tr(r['类别']) }}</td>
+              <td>{{ f2(r['坑底高程 m']) }}</td><td>{{ f2(r['取水流量 m³/s']) }}</td><td>{{ int(r['到泵站重力管 m']) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+    </div>
+  </div>
+</template>

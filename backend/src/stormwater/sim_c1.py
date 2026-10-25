@@ -51,7 +51,8 @@ import numpy as np
 from .i18n import EXTENT_EN, en_label
 from .sim_city import _extract_grid, _link, _overflow_series
 from .sim_sww import (DATA_ROOT, DELIVERY_WET_M, LEGACY_RES_M, OUT_ROOT, WET_M, SwwError, _cell_polys, _dump,
-                      _node_coords, _one, _outfalls, output_key, parse_delivery_name)
+                      _node_coords, _one, _outfalls, is_projected, norm_geom, output_key,
+                      parse_delivery_name)
 
 SCHEMA = "flood_management.c1_state_delivery.v1"
 LAND_CELL_M = 15.0        # 落图格网的下限：模型网格 ≥ 15 m 时 = 模型标称网格，更细的（5 m）仍落 15 m，免得逐帧 geojson 爆炸
@@ -92,9 +93,21 @@ def _label(root: Path, state: str) -> str:
     return f"{state} {en_label(tail[1])}" if len(tail) > 1 else state
 
 
+#: RD-A 全套成果各态的口径（来自交付 README：设施逐级累加，每一态含前面各态的全部设施）
+_RDA_NOTE = {
+    "L1": "客户 SewerGEMS RD-A 模型（换算公制）现状管网 + 3 座现状泵站",
+    "L2": "L1 + 雨前预置的 15 台移动泵（热点表 Plan A）",
+    "L2+planned": "L2 + 客户计划的 2 台泵（客户 SewerGEMS 情景 Temporary Intervention）",
+    "L2+suggested": "L2+planned + 我们的建议方案：60 项措施（地下调蓄池 / 泵站 → 新建排海口 / 地面取水泵站），"
+                    "位置已按 WA-726 与空间约束筛过，造价为占位单价、不是概算",
+}
+
+
 def _state_note(state: str, dir_name: str, extent: str = "C1") -> str:
     """态的口径一句话。L2+suggested 的 `_NOTE` 是 v2（转输 / 地面取水泵）的写法；交付换成 v3（按塘余量分配）后
     措施清单变了，这里不沿用 v2 的描述，只写到父态与方案名，细节让读者去看交付的计算设置.md。"""
+    if extent == "RDA":
+        return _RDA_NOTE[state]
     if extent != "C1":
         return f"交付目录 {dir_name}，措施清单以交付的计算设置.md 为准，本系统未复核"
     if state == "L2+suggested" and re.search(r"v([3-9]|\d{2,})", dir_name):
@@ -167,15 +180,19 @@ def state_files(root: Path, state: str, c2d: Path | None = None) -> StateFiles:
     if sd is None:
         raise SwwError(f"{root} 下没有 {state} 的目录")
     if (sd / "一二维").is_dir():
-        d2, d1, layout = sd / "一二维", sd / "一二维" / "耦合的一维", "一二维"
+        d2, layout = sd / "一二维", "一二维"
+        # C1 的 SWMM 在「耦合的一维/」里；RDA 全套成果把 .inp / .rpt 直接放在「一二维/」里
+        d1 = d2 / "耦合的一维" if (d2 / "耦合的一维").is_dir() else d2
     elif (sd / "二维").is_dir() and (sd / "一维").is_dir():
         d2, d1, layout = sd / "二维", sd / "一维", "模型版"
     else:
         raise SwwError(f"{sd.name} 里既没有「一二维/」也没有「一维/ + 二维/」")
-    rec_p = _one(d2, "*_耦合运行记录.json")
+    rec_p = _one(d2, "*_耦合运行记录.json" if any(d2.glob("*_耦合运行记录.json")) else "*_耦合交换记录.json")
     rec = json.loads(rec_p.read_text(encoding="utf-8"))
     rpt, inp = _one(d1, "*.rpt"), _one(d1, "*.inp")
     npzs = sorted(p for p in d2.glob("*_二维水深帧与最大水深.npz") if not p.name.startswith("._"))
+    if not npzs:        # RDA 全套成果：<名>_<态记号>_二维结果.npz（同一组键）
+        npzs = sorted(p for p in d2.glob("*_二维结果.npz") if not p.name.startswith("._"))
     if not npzs and layout == "模型版":
         # 区域交付把 npz 直接放进 <态>/二维/，文件名是 <运行记录 tag>_2d.npz（如 AD_MI8_M61H1_L1_2d.npz）
         npzs = sorted(p for p in d2.glob("*_2d.npz") if not p.name.startswith("._"))
@@ -191,7 +208,8 @@ def state_files(root: Path, state: str, c2d: Path | None = None) -> StateFiles:
 def _state_record(root: Path, state: str) -> dict[str, Any] | None:
     sd = _state_dir(root, state)
     for d2 in (sd / "一二维", sd / "二维"):
-        recs = sorted(p for p in d2.glob("*_耦合运行记录.json") if not p.name.startswith("._")) if d2.is_dir() else []
+        recs = sorted(p for p in [*d2.glob("*_耦合运行记录.json"), *d2.glob("*_耦合交换记录.json")]
+                      if not p.name.startswith("._")) if d2.is_dir() else []
         if recs:
             return json.loads(recs[0].read_text(encoding="utf-8"))
     return None
@@ -338,7 +356,7 @@ def extract_state(root: Path, state: str, out: Path, c2d: Path | None = None) ->
         ),
         "source": {"delivery": str(root.relative_to(DATA_ROOT)) if DATA_ROOT in root.parents else str(root),
                    "state_dir": sd.name, "native_npz": npz.name, "coupling_record": rec.get("tag"),
-                   "report_url": REPORT_URL},
+                   "report_url": REPORT_URL if extent == "C1" else None},
         "domain": {
             "bounds_epsg32640": g["bounds"],
             "area_m2": round(g["domain_m2"], 1),
@@ -422,6 +440,16 @@ _METRICS = {"最大水深 m": "max_depth_m", "积水面积 ≥0.10 m（ha）": "
 _TOTAL_ROW = "C1 八个热点"
 #: 「全域」行的口径 → 协议 key（管网服务区 / 直接降雨区 / 全域）
 _ZONES = {"管网服务区": "network_zone", "直接降雨区": "direct_rain_zone", "全域": "domain"}
+
+
+def _utm_to_ll(c: Any) -> Any:
+    """EPSG:32640 的坐标嵌套 → 经纬度（落图用，只给米制写成了 GeoJSON 的交付兜底）。"""
+    if c and isinstance(c[0], (int, float)):
+        from .rda import _utm40_to_lonlat
+
+        lo, la = _utm40_to_lonlat(np.array([c[0]], float), np.array([c[1]], float))
+        return [float(lo[0]), float(la[0])]
+    return [_utm_to_ll(x) for x in c]
 
 
 def _round_coords(c: Any) -> Any:
@@ -642,7 +670,9 @@ def region_catchment(root: Path) -> dict[str, Any]:
             continue
         feats = []
         for ft in json.loads(f.read_text(encoding="utf-8")).get("features", []):
-            g = ft.get("geometry") or {}
+            g = norm_geom(ft.get("geometry") or {})
+            if g.get("type") in ("Polygon", "MultiPolygon") and is_projected(g):
+                g = {**g, "coordinates": _utm_to_ll(g["coordinates"])}
             if g.get("type") in ("Polygon", "MultiPolygon"):
                 pr = ft.get("properties") or {}
                 feats.append({"type": "Feature", "properties": {"name": pr.get("name") or pr.get("id") or root.name,

@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from .sim_sww import _node_coords
+from .sim_sww import _node_coords, is_projected, norm_geom
 
 SCOPES = ("domain", "catchment", "near_200m")
 NEAR_M = 200.0
@@ -52,7 +52,8 @@ def _flood_by_node(rpt: Path) -> dict[str, float]:
 def _to_utm(geom: dict[str, Any]) -> dict[str, Any]:
     from rasterio.warp import transform_geom
 
-    return transform_geom(CRS_LL, CRS_UTM, geom)
+    geom = norm_geom(geom)
+    return geom if is_projected(geom) else transform_geom(CRS_LL, CRS_UTM, geom)
 
 
 def compute(root: Path, base: Path, hot: dict[str, Any]) -> dict[str, Any]:

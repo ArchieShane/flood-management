@@ -35,6 +35,7 @@ function nextUser() {
       <RouterLink class="nav on" to="/simulations" :title="t('sim.nav.simulation')">
         <AppIcon name="sliders" :size="20" />
       </RouterLink>
+      <RouterLink class="nav" to="/rda" title="RD-A 全套成果"><AppIcon name="pulse" :size="20" /></RouterLink>
       <span class="nav off" :title="t('sim.nav.fleet')"><AppIcon name="truck" :size="20" /></span>
       <RouterLink class="nav" to="/calculator" :title="t('sim.nav.calculator')">
         <AppIcon name="pulse" :size="20" />

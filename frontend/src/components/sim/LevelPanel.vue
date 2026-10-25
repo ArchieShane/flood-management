@@ -27,6 +27,7 @@ const props = defineProps({
   stateKey: { type: String, default: null },
   l2View: { type: Boolean, default: false },   // 全市任务的第二道现状视图（?line=l2）
   meta: { type: Object, default: null },       // /layers
+  noOverflow: { type: Boolean, default: false },   // RD-A：有自己的积水点算法，不出溢水点 / 溢水量两行
   ponding: { type: Object, default: null },    // 地图已取回的 /layers/ponding（多态时是当前态自己的）
   active: { type: Number, default: null },
   now: { type: Object, default: null },        // 地图时间过程下的本帧当前值（ResultMap 的 now）；null = 看全程
@@ -234,9 +235,10 @@ const scopeRows = computed(() => stateCols.value?.map(c => {
   } }
 }) ?? null)
 
+const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow'))
 const dims = computed(() => inScope.value
-  ? build(SCOPE_SPEC, scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
-  : build([PONDING, ...SPEC], rows.value, dimLabel))
+  ? build(SCOPE_SPEC.filter(keepDim), scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
+  : build([PONDING, ...SPEC].filter(keepDim), rows.value, dimLabel))
 
 /* ---------------- 标题、降雨情景与脚注 ---------------- */
 const lineText = computed(() => (props.l2View && !props.states ? lineName('line2_current') : props.run.defence_line_label || ''))
@@ -261,7 +263,7 @@ const notes = computed(() => {
     if (props.l2View && !props.states) out.push({ text: t('sim.levels.noteNowL2') })
   }
   if (props.states && perf.value) {
-    if (!props.now) out.push({ text: t('sim.levels.noteState', { w: Math.round(perf.value.common_end_minutes / 6) / 10 }) })
+    if (!props.now) out.push({ text: t(props.noOverflow ? 'sim.levels.noteStateNoOvf' : 'sim.levels.noteState', { w: Math.round(perf.value.common_end_minutes / 6) / 10 }) })
     if (!props.now && !perf.value.network.comparable) out.push({ text: t('sim.levels.notComparable'), warn: true })
     const same = stateRows.value?.find(r => r.sameAs)
     if (same) out.push({ text: t('sim.levels.sameAs', { s: same.key, as: same.sameAs }) })
