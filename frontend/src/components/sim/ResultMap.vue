@@ -164,6 +164,7 @@ const now = computed(() => {
     area_basis: tri ? 'triangle' : 'cell',
     area_m2: tri ? tl.wet_area_m2[i] : n * cellKm2.value * 1e6,
     depth_m: tri ? tl.max_depth_m[i] : n ? Math.max(...f.depth_m) : 0,
+    volume_m3: tl?.volume_m3?.[i] ?? null,
     overflow_m3: tl?.overflow_cum_m3?.[i] ?? null,
     overflow_basis: tl?.overflow_basis ?? null,
     ponding: tl?.ponding_lit?.[i] ?? pondLit.value,

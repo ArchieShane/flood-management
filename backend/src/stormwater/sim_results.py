@@ -179,6 +179,7 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
 
     - 积水面积 / 最深水深：有 `surface_series`（sww 交付）时取同一时刻的三角形口径（水深 ≥ 0.02 m，与卡片的
       「最大积水面积」同口径，峰值那一帧就等于它）；没有就给 null，前端按本帧 ≥ 1 cm 的格子自己算（`area_basis = cell`）。
+    - 地表积水总量 `volume_m3`：有 `surface_series` 时取同一帧的 Σ(水深 × 单元面积)，没有就给 null。
     - 累计溢水量：截至本帧的 SWMM → 地表累计量。sww 交付取耦合记录（逐 10 min，帧落在两点之间线性插值）；
       全市交付取回执逐窗累加（5 min 一窗，与帧对齐）。末帧等于卡片上的全程量。超出记录范围给 null。
     - 已出现的溢水点：片区成立时刻 `onset_min` ≤ 本帧的个数，与地图逐帧点亮同一判据；片区算不出给 null。
@@ -191,7 +192,7 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
     s = _summary(d)
     t = np.asarray([f["time_minutes"] for f in _manifest(d)], float)
     out: dict[str, Any] = {"time_minutes": t.tolist(), "area_basis": "cell", "wet_threshold_m": None,
-                           "wet_area_m2": None, "max_depth_m": None,
+                           "wet_area_m2": None, "max_depth_m": None, "volume_m3": None,
                            "overflow_basis": None, "overflow_cum_m3": None, "ponding_lit": None, "ponding_total": None}
     rel = s["outputs"].get("surface_series")
     ser = _load(d / rel) if rel and (d / rel).is_file() else None
@@ -202,7 +203,8 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
         hit = np.abs(st[j] - t) <= 0.5
         pick = lambda k: [float(ser[k][i]) if h else None for i, h in zip(j.tolist(), hit.tolist())]
         out.update(area_basis="triangle", wet_threshold_m=ser.get("wet_threshold_m"),
-                   wet_area_m2=pick("wet_area_m2"), max_depth_m=pick("max_depth_m"))
+                   wet_area_m2=pick("wet_area_m2"), max_depth_m=pick("max_depth_m"),
+                   volume_m3=pick("volume_m3") if "volume_m3" in ser else None)   # 地表积水总量（Σ水深×单元面积）
         ov = ser.get("overflow")
         if ov and ov.get("time_minutes"):
             ot, oc = np.asarray(ov["time_minutes"], float), np.asarray(ov["cum_m3"], float)

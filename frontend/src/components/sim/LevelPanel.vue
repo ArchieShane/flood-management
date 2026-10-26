@@ -67,6 +67,7 @@ const fmtClock = min => `T+${Math.floor(min / 60)}:${String(Math.round(min % 60)
 const PONDING = { k: 'ponding', u: '', better: 'lower', fmt: v => fmtInt(Math.round(v)) }
 const SPEC = [
   { k: 'overflow', u: 'm³', better: 'lower', fmt: v => fmtInt(Math.round(v)) },
+  { k: 'volume', u: 'm³', better: 'lower', fmt: v => fmtInt(Math.round(v)) },   // 总积水量：地表积水量的峰值（逐帧 Σ水深×面积 的最大值）
   { k: 'area', u: 'km²', better: 'lower', fmt: v => fmtKm2(v) },
   { k: 'depth', u: 'm', better: 'lower', fmt: v => Number(v).toFixed(2) },
   { k: 'storage', u: 'm³', better: 'higher', fmt: v => fmtInt(Math.round(v)) },
@@ -77,6 +78,7 @@ const lineName = k => t(`sim.detail.lineTab.${k}`)
 /** 多态：perf.columns 一态一份 */
 const colVals = c => ({
   overflow: c.network?.overflow_to_surface_m3 ?? null,
+  volume: c.window?.peak_surface_volume_m3 ?? null,
   area: c.window?.inundated_area_m2 == null ? null : c.window.inundated_area_m2 / 1e6,
   depth: c.window?.max_depth_m ?? null,
   storage: c.network?.system_storage_m3 ?? null,   // 管网 + 蓄水节点，与效果分析页同口径（只取调蓄单元的话 L1 没有塘就是 0）
@@ -84,14 +86,14 @@ const colVals = c => ({
 /** 某态在同一时刻（按分钟对齐）的当前值；没演算到这一时刻、或 timeline 还没到，给 null */
 const atTime = (tl, tm) => {
   const i = tl ? tl.time_minutes.findIndex(x => Math.abs(x - tm) < 1e-6) : -1
-  if (i < 0) return { ponding: null, overflow: null, area: null, depth: null }
+  if (i < 0) return { ponding: null, overflow: null, volume: null, area: null, depth: null }
   const a = tl.wet_area_m2?.[i]
-  return { ponding: tl.ponding_lit?.[i] ?? null, overflow: tl.overflow_cum_m3?.[i] ?? null,
+  return { ponding: tl.ponding_lit?.[i] ?? null, overflow: tl.overflow_cum_m3?.[i] ?? null, volume: tl.volume_m3?.[i] ?? null,
     area: a == null ? null : a / 1e6, depth: tl.max_depth_m?.[i] ?? null }
 }
 /** 全程溢水点个数：地图已取回的 ponding 的片区数 */
 const pondCount = p => (p?.clusters ? p.clusters.length : null)
-const nowVals = n => ({ ponding: n.ponding, overflow: n.overflow_m3, area: n.area_m2 == null ? null : n.area_m2 / 1e6, depth: n.depth_m })
+const nowVals = n => ({ ponding: n.ponding, overflow: n.overflow_m3, volume: n.volume_m3 ?? null, area: n.area_m2 == null ? null : n.area_m2 / 1e6, depth: n.depth_m })
 
 const stateCols = computed(() => {
   const cols = perf.value?.columns
@@ -178,7 +180,8 @@ const plainRows = computed(() => {
   if (!r) return null
   return [{
     key: 'run', label: props.run.defence_line_label || '', peak: r.peak_inundated_area_m2 != null,
-    v: props.now ? { ...nowVals(props.now), storage: null } : { ponding: pondCount(props.ponding), overflow: null, storage: null, area: layerArea(r), depth: r.maximum_depth_m ?? null },
+    v: props.now ? { ...nowVals(props.now), storage: null }
+      : { ponding: pondCount(props.ponding), overflow: null, storage: null, volume: r.peak_surface_volume_m3 ?? null, area: layerArea(r), depth: r.maximum_depth_m ?? null },
   }]
 })
 
@@ -221,6 +224,7 @@ const fmtHa = v => (Number(v) >= 10 ? Number(v).toFixed(1) : Number(v).toFixed(2
 const SCOPE_SPEC = [
   PONDING,
   { k: 'overflow', u: 'm³', better: 'lower', fmt: v => fmtInt(Math.round(v)) },
+  SPEC.find(x => x.k === 'volume'),
   { k: 'a10', u: 'ha', better: 'lower', fmt: fmtHa },
   { k: 'a30', u: 'ha', better: 'lower', fmt: fmtHa },
   { k: 'depth', u: 'm', better: 'lower', fmt: v => Number(v).toFixed(2) },
@@ -230,15 +234,17 @@ const SCOPE_SPEC = [
 const scopeRows = computed(() => stateCols.value?.map(c => {
   const d = props.hotspots.scopes[scope.value]?.[c.key] || {}
   return { key: c.key, label: stateCode(c.key), v: {
-    ponding: d.ponding ?? null, overflow: d.overflow_m3 ?? null, a10: d.area_ge_0_10_ha ?? null,
+    ponding: d.ponding ?? null, overflow: d.overflow_m3 ?? null, volume: d.max_volume_m3 ?? null, a10: d.area_ge_0_10_ha ?? null,
     a30: d.area_ge_0_30_ha ?? null, depth: d.max_depth_m ?? null, storage: colVals(c).storage,
   } }
 }) ?? null)
 
 const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow'))
+/** 总积水量：这份交付拿不出（没有逐帧水量序列）就整块不出，不放一个「—」占位 */
+const hasVolume = rs => (rs || []).some(r => r.v.volume != null)
 const dims = computed(() => inScope.value
-  ? build(SCOPE_SPEC.filter(keepDim), scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
-  : build([PONDING, ...SPEC].filter(keepDim), rows.value, dimLabel))
+  ? build(SCOPE_SPEC.filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(scopeRows.value)), scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
+  : build([PONDING, ...SPEC].filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(rows.value)), rows.value, dimLabel))
 
 /* ---------------- 标题、降雨情景与脚注 ---------------- */
 const lineText = computed(() => (props.l2View && !props.states ? lineName('line2_current') : props.run.defence_line_label || ''))
@@ -264,6 +270,7 @@ const notes = computed(() => {
   }
   if (props.states && perf.value) {
     if (!props.now) out.push({ text: t(props.noOverflow ? 'sim.levels.noteStateNoOvf' : 'sim.levels.noteState', { w: Math.round(perf.value.common_end_minutes / 6) / 10 }) })
+    if (!props.now && hasVolume(stateRows.value)) out.push({ text: t('sim.levels.noteVolume') })
     if (!props.now && !perf.value.network.comparable) out.push({ text: t('sim.levels.notComparable'), warn: true })
     const same = stateRows.value?.find(r => r.sameAs)
     if (same) out.push({ text: t('sim.levels.sameAs', { s: same.key, as: same.sameAs }) })
