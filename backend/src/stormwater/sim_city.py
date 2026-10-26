@@ -48,6 +48,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,35 @@ STATES = {
 COLUMNS = {"L1": "line1", "L2": "line2_current"}
 PARENT = {"L1": None, "L2": "L1"}
 
+#: 交付布局。zh = 2026-09-28 全市交付（中文目录、250 m 落图格、6.3M 单元）；
+#: adm = 2026-10-26 阿布扎比全市「改造后数据」（英文目录 `1D/` + `2D/`、100 m 模型 56.9 万单元、L2 = L1 + 170 塘 / 渗井）。
+#: 两者的 npz 同形（xy / area / elev / hmax / frames / t_h / rain_mask / uh / vh）。
+LAYOUTS: dict[str, dict[str, Any]] = {
+    "zh": {
+        "cell_m": CELL_M, "model_res_m": MODEL_RES_M,
+        "labels": {"L1": "Existing network", "L2": "Built ponds (22)"},
+        "terrain": "customer 5 m DTM averaged to 30 m, unstructured mesh (mean 195 m²)",
+        "report_url": "https://claude.ai/artifact/NjMBR3ueF7RBUGYQJGm9bY",
+    },
+    "adm": {
+        "cell_m": 100.0, "model_res_m": 100.0,
+        "labels": {"L1": "Existing facilities", "L2": "Ponds + soakaways (170)"},
+        "terrain": "DTM averaged to 100 m blocks, unstructured mesh (about 569k cells)",
+        "report_url": None,
+    },
+}
 
-def state_label(state: str) -> str:
-    return f"{state} {STATES[state][2]}"
+
+def layout_of(root: Path) -> str:
+    """`adm`：态目录下有 `1D/` 与 `2D/*_2d.npz`；否则按中文布局（`一二维/`）。"""
+    for sd in sorted(p for p in root.iterdir() if p.is_dir() and re.match(r"L\d", p.name)):
+        if (sd / "1D").is_dir() and any(not p.name.startswith("._") for p in (sd / "2D").glob("*_2d.npz")):
+            return "adm"
+    return "zh"
+
+
+def state_label(state: str, layout: str = "zh") -> str:
+    return f"{state} {LAYOUTS[layout]['labels'][state]}"
 
 
 def _state_dir(root: Path, state: str) -> Path | None:
@@ -94,12 +121,15 @@ def _link(src: Path, dst: Path) -> None:
 
 
 def _stats(root: Path) -> dict[str, dict[str, str]]:
-    """全市L1L2统计值.csv：指标 → 行（L1 / L2 两列为交付原值字符串）。"""
+    """全市L1L2统计值.csv（adm 布局为 statistics/summary.csv，列 metric）：指标 → 行（L1 / L2 两列为交付原值字符串）。"""
     p = root / "对比_缺口分析" / "全市L1L2统计值.csv"
+    key = "指标"
+    if not p.is_file():
+        p, key = root / "statistics" / "summary.csv", "metric"
     if not p.is_file():
         return {}
     with p.open(encoding="utf-8-sig", newline="") as f:
-        return {r["指标"]: r for r in csv.DictReader(f)}
+        return {r[key]: r for r in csv.DictReader(f)}
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +164,7 @@ def _row_blocks(npz: Path, key: str, n_rows: int, budget_bytes: int = 192 * 2**2
 
 
 def _extract_grid(npz: Path, cs: float = CELL_M) -> dict[str, Any]:
+    """三角单元聚到 cs 米落图格（原点对齐 cs 的整数倍）。"""
     z = np.load(npz)
     xy = z["xy"].astype(float)
     area = z["area"].astype(float)
@@ -231,13 +262,21 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     sd = _state_dir(root, state)
     if sd is None:
         raise SwwError(f"{root} 下没有 {state} 的目录")
-    d2 = sd / "一二维"
-    npz = _one(d2, "*_二维水深帧与最大水深.npz")
-    rec = json.loads(_one(d2, "*_耦合运行记录.json").read_text(encoding="utf-8"))
-    rpt = _one(d2 / "耦合的一维", "*.rpt")
-    inp = _one(d2 / "耦合的一维", "*.inp")
+    lay = layout_of(root)
+    L = LAYOUTS[lay]
+    if lay == "adm":
+        d2, d1 = sd / "2D", sd / "1D"
+        npz = _one(d2, "*_2d.npz")
+        rec = json.loads(_one(d2, "*_coupled_run_record.json").read_text(encoding="utf-8"))
+    else:
+        d2 = sd / "一二维"
+        d1 = d2 / "耦合的一维"
+        npz = _one(d2, "*_二维水深帧与最大水深.npz")
+        rec = json.loads(_one(d2, "*_耦合运行记录.json").read_text(encoding="utf-8"))
+    rpt = _one(d1, "*.rpt")
+    inp = _one(d1, "*.inp")
 
-    g = _extract_grid(npz)
+    g = _extract_grid(npz, L["cell_m"])
     out.mkdir(parents=True, exist_ok=True)
     (out / "temporal_snapshots").mkdir(exist_ok=True)
     nc, cs = g["nc"], g["cs"]
@@ -277,8 +316,7 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     _dump(out / "surface_series.json", {
         "schema": SCHEMA, "wet_threshold_m": DELIVERY_WET_M,
         "note": "逐 5 min 帧、按三角单元（npz）：wet_area_m2 = 水深 ≥ 阈值的单元面积之和，max_depth_m = 该帧单元最大水深，"
-                "volume_m3 = Σ 水深 × 单元面积；time_minutes 从降雨起算。全市地表直接受雨，面积含雨水膜",
-        **g["series"],
+                "volume_m3 = Σ 水深 × 单元面积；time_minutes 从降雨起算。全市地表直接受雨，面积含雨水膜",        **g["series"],
         "overflow": _overflow_series(rec),
     })
 
@@ -298,7 +336,7 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
         if 0 <= r < g["nr"] and 0 <= c < nc:
             binds.append(f'{{"swmm_node_id": {json.dumps(nid)}, "swmm_node_index": {k}, "anuga_cell_index": {r * nc + c}}}')
     (out / "node_cell_binding.json").write_text(
-        '{"schema": "' + SCHEMA + '", "note": "节点坐标取耦合 SWMM 的 [COORDINATES]，落到 250 m 格", "bindings": [\n'
+        '{"schema": "' + SCHEMA + f'", "note": "节点坐标取耦合 SWMM 的 [COORDINATES]，落到 {cs:g} m 格", "bindings": [\n'
         + ",\n".join(binds) + "\n]}\n", encoding="utf-8")
     _link(rpt, out / "swmm_coupled.rpt")
     _link(inp, out / "coupled_scenario.inp")
@@ -310,9 +348,11 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     _dump(out / "scenario.json", {
         "scope": "citywide",
         # 有管网覆盖的地面按客户汇水区 CN / Tc 产流注入一维；离井 > 46 m 的地面净雨直接下在二维上
-        "spatial_pattern": "Client catchments + direct rain on 2D",
+        "spatial_pattern": ("Service-area injection at nodes + direct rain on 2D" if lay == "adm"
+                            else "Client catchments + direct rain on 2D"),
         "rainfall_profile": {"profile_id": f"R{depth_mm:g}D{dur_h:g}",
-                             "provenance": {"temporal_assumption": "client 2 h design storm"}},
+                             "provenance": {"temporal_assumption": "client Mussafah 1 h design storm shape" if lay == "adm"
+                                            else "client 2 h design storm"}},
         "outfall_mode": "free",
         "outfall_level_m": None,
         "outfalls": [{"name": o[0], "type": o[1], "stage_m": o[2]} for o in outf],
@@ -331,21 +371,31 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     summary = {
         "schema": SCHEMA,
         "run_id": f"{root.name}/{state}",
-        "scenario_label": f"{region} · {depth_mm:g} mm / {dur_h:g} h · {state_label(state)}",
+        "scenario_label": f"{region} · {depth_mm:g} mm / {dur_h:g} h · {state_label(state, lay)}",
         "state": state,
         "status": "completed",
         "solver": "ANUGA 2D + SWMM 5.2.4",
         "claim_boundary": (
-            f"{state_label(state)}：全市整网 SWMM 与 ANUGA 双向耦合（60 s 交换），非结构三角网 "
-            f"{g['n_tri']:,} 个单元、地形有效分辨率 30 m，演算 0 → {g['end_min'] / 60:g} h；"
-            "离井 > 46 m 的地面直接受雨（CN 82）。糙率全域 0.030 未分下垫面；交付方未标定、未经工程认可。"
-            "页面格网是三角单元按面积平均到 250 m，格内最深处被抹平；最大水深 / 积水面积按三角单元统计。"
-            + ("塘按深 0.30 m 的平底蓄水节点建模（库容对、塘内水位与顶托不真实），接塘管按位置与标高推断；"
-               "一维只有 17 座塘有进水管，一二维 22 座都在。" if state == "L2" else "")
+            (
+                f"{state_label(state, lay)}：阿布扎比全市整网 SWMM（改造后管网数据）与 ANUGA 双向耦合（60 s 交换），"
+                f"非结构三角网 {g['n_tri']:,} 个单元（约 100 m）、地形为 DTM 平均到 100 m，小尺度起伏（窄沟、路缘、小洼地）被抹平，"
+                f"演算 0 → {g['end_min'] / 60:g} h；产流为全市统一 SCS CN 82、Tc 30 min（数据集无汇水区图层），"
+                "离井 > 44.7 m 的地面直接受雨。糙率全域 0.030 未分下垫面；交付方未标定、未经工程认可。"
+                f"页面格网是三角单元按面积平均到 {cs:g} m；最大水深 / 积水面积按三角单元统计。"
+                + ("塘 / 渗井共 170 个（148 塘 + 22 渗井，其中 145 个库容或深度为估算），渗井无下渗；"
+                   "一维管网与泵站同 L1。" if state == "L2" else "已建泵站 38 组（有流量数据者），无塘、无渗井。")
+            ) if lay == "adm" else (
+                f"{state_label(state)}：全市整网 SWMM 与 ANUGA 双向耦合（60 s 交换），非结构三角网 "
+                f"{g['n_tri']:,} 个单元、地形有效分辨率 30 m，演算 0 → {g['end_min'] / 60:g} h；"
+                "离井 > 46 m 的地面直接受雨（CN 82）。糙率全域 0.030 未分下垫面；交付方未标定、未经工程认可。"
+                "页面格网是三角单元按面积平均到 250 m，格内最深处被抹平；最大水深 / 积水面积按三角单元统计。"
+                + ("塘按深 0.30 m 的平底蓄水节点建模（库容对、塘内水位与顶托不真实），接塘管按位置与标高推断；"
+                   "一维只有 17 座塘有进水管，一二维 22 座都在。" if state == "L2" else "")
+            )
         ),
         "source": {"delivery": str(root.relative_to(DATA_ROOT)) if DATA_ROOT in root.parents else str(root),
                    "state_dir": sd.name, "native_npz": npz.name, "coupling_record": rec.get("tag"),
-                   "report_url": "https://claude.ai/artifact/NjMBR3ueF7RBUGYQJGm9bY"},
+                   "report_url": L["report_url"]},
         "domain": {
             "bounds_epsg32640": g["bounds"],
             "area_m2": round(g["domain_m2"], 1),
@@ -376,13 +426,15 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
             "delivery_max_area_ge_0_10m2": round(g["tri_ever"][0.10], 1),
             "delivery_max_area_ge_0_30m2": round(g["tri_ever"][0.30], 1),
             "delivery_max_area_ge_0_80m2": round(g["tri_ever"][0.80], 1),
-            "delivery_same_time_area_ge_0_10m2": (stat("积水 ≥0.10 m 同一时刻最大面积") or 0) * 1e4 or None,
+            "delivery_same_time_area_ge_0_10m2": (stat("flooded area >=0.10 m (ha)" if lay == "adm"
+                                                       else "积水 ≥0.10 m 同一时刻最大面积") or 0) * 1e4 or None,
             "delivery_wet_record_max_m2": rec.get("max_wet_m2"),
             "peak_surface_volume_m3": g["tri_vol_max_m3"],
             "final_surface_volume_m3": g["tri_vol_end_m3"],
             "minimum_published_depth_m": WET_M,
             "pond_inflow_m3": acc.get("pond"),
-            "pond_stored_end_m3": stat("塘蓄住的水（6 h 末）"),
+            "pond_stored_end_m3": (round(sum(p.get("vol_end_m3") or 0 for p in rec.get("ponds") or []), 1) or None
+                                   if lay == "adm" else stat("塘蓄住的水（6 h 末）")),
         },
         "coupling": {
             "coupling_mode": "bidirectional",
@@ -401,8 +453,8 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
             "dynamic_head_feedback": True,
             "simulation_duration_minutes": g["end_min"],
             "output_interval_minutes": 5.0,
-            "model_cell_size_m": MODEL_RES_M,
-            "terrain_product": "customer 5 m DTM averaged to 30 m, unstructured mesh (mean 195 m²)",
+            "model_cell_size_m": L["model_res_m"],
+            "terrain_product": L["terrain"],
             # 直接落在二维地面的净雨（耦合记录 acc_m3.rain）：> 0，sim_ponding 不亮 no_surface_rain
             "surface_rainfall_inflow_m3": acc.get("rain"),
             "surface_rain_cell_fraction": g["rain_mask_fraction"],
@@ -434,12 +486,13 @@ def extract(root: Path, only: list[str] | None = None) -> Path:
     if src.is_file():
         (base / "analysis").mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, base / "analysis" / "state_stats.csv")
+    lay = layout_of(root)
     present = [st for st in STATES if (base / st / "delivery_summary.json").is_file()]
     _dump(base / "states.json", {
         "schema": "flood_management.sww_states.v1",
         "delivery": root.name,
         "default": "L1" if "L1" in present else present[0],
-        "states": [{"key": st, "label": state_label(st), "defence_line_key": STATES[st][1],
+        "states": [{"key": st, "label": state_label(st, lay), "defence_line_key": STATES[st][1],
                     "column": COLUMNS[st], "dir": st,
                     "parent": PARENT[st] if PARENT[st] in present else None,
                     "same_as": None} for st in present],

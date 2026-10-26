@@ -13,6 +13,7 @@ from stormwater import sim_c1, sim_sww
     ("C1_模型版_61mm2h_5m", ("C1_模型版", 61.0, 2.0, 5.0)),
     ("YAS_61mm24h_G5", ("YAS", 61.0, 24.0, 5.0)),
     ("BAT_96.5mm1h_15m", ("BAT", 96.5, 1.0, 15.0)),
+    ("ADM_City_61mm1h_100m_after", ("ADM_City", 61.0, 1.0, 100.0)),
 ])
 def test_parse_delivery_name(name, expect):
     assert sim_sww.parse_delivery_name(name) == expect
@@ -43,6 +44,21 @@ def _delivery(root, dirs):
     for d in dirs:
         (root / d).mkdir(parents=True)
     return root
+
+
+def test_adm_city_layout_is_detected_as_city(tmp_path):
+    """阿布扎比全市改造后数据：英文目录 1D/ + 2D/*_2d.npz，走 sim_city（不是 c1）。"""
+    from stormwater import sim_city, sim_import
+
+    root = tmp_path / "ADM_City_61mm1h_100m_after"
+    for d in ("L1_existing_facilities", "L2_with_ponds"):
+        (root / d / "1D").mkdir(parents=True)
+        (root / d / "2D").mkdir()
+        (root / d / "2D" / "X_2d.npz").write_bytes(b"")
+    assert sim_city.layout_of(root) == "adm"
+    assert sim_import.detect(root) == "city"
+    assert sim_city.state_label("L2", "adm") == "L2 Ponds + soakaways (170)"
+    assert sim_city._state_dir(root, "L2").name == "L2_with_ponds"
 
 
 def test_state_dir_matches_v3_suggested_by_prefix(tmp_path):
