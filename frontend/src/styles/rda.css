@@ -32,6 +32,7 @@
 .rda-ui .tbl th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line-2); }
 .rda-ui .tbl td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .rda-ui .tbl tbody tr { cursor: pointer; }
+.rda-ui .tbl small.tm { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .rda-ui .tbl tbody tr:hover, .rda-ui .tbl tr.cur { background: var(--blue-bg); }
 .rda-ui .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; color: #fff; font-style: normal; margin-left: 4px; }
 .rda-ui .pill.gray { background: #6b737b; }

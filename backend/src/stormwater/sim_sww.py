@@ -99,7 +99,7 @@ COLUMNS = {"L1": "line1", "L2": "line2_current", "L2+planned": "line2_planned",
 PARENT = {"L1": None, "L2": "L1", "L2+planned": "L2", "L2+suggested": "L2+planned"}
 #: 交付目录名：`<片区…>_<雨深>mm<历时>h[_<网格>m | _G<网格>]`，如 `Mussafah_00_61mm2h`、`C1_模型版_61mm2h_5m`、`YAS_61mm2h_G5`
 _REGION_RX = re.compile(r"^(?P<region>.+?)_(?P<depth>\d+(?:\.\d+)?)mm(?P<dur>\d+(?:\.\d+)?)h"
-                        r"(?:_G(?P<g>\d+(?:\.\d+)?)|_(?P<m>\d+(?:\.\d+)?)m)?(?:_全套成果)?$")
+                        r"(?:_G(?P<g>\d+(?:\.\d+)?)|_(?P<m>\d+(?:\.\d+)?)m)?(?:_全套成果)?(?:_after)?$")
 #: 历史交付（无网格后缀）的标称网格；输出键只在网格不等于它时才带后缀，已抽好的目录名因此不变
 LEGACY_RES_M = 15.0
 
