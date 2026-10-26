@@ -127,6 +127,14 @@ const facCounts = computed(() => {
       <div v-if="rda.hotspotCoverage.value" class="card">
         <h4>{{ tr('覆盖的客户热点') }} {{ rda.hotspotCoverage.value.covered }} / {{ rda.hotspotCoverage.value.total }}</h4>
         <p class="muted small">{{ tr('按当前状态、当前阈值算出的积水点，200 m 内有积水点即算覆盖该热点；未覆盖 = 这一态下热点周边已没有达标的积水点。点编号可定位。') }}</p>
+        <p v-if="rda.hotspotCoverage.value.insidePct != null" class="small">
+          {{ tr('热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。', {
+            a: rda.hotspotCoverage.value.nInside, n: rda.hotspotCoverage.value.nPoints, v: int(rda.hotspotCoverage.value.volInside),
+            p: f1(rda.hotspotCoverage.value.insidePct), q: f1(100 - rda.hotspotCoverage.value.insidePct) }) }}
+        </p>
+        <p v-if="rda.hotspotCoverage.value.nExcluded" class="muted small">
+          {{ tr('已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。', { n: rda.hotspotCoverage.value.nExcluded }) }}
+        </p>
         <table class="tbl">
           <thead><tr><th>{{ tr('热点') }}</th><th>{{ tr('覆盖') }}</th><th>{{ tr('覆盖它的积水点（距离）') }}</th></tr></thead>
           <tbody>
@@ -159,6 +167,7 @@ const facCounts = computed(() => {
           {{ rda.selectedPoint.value.id }}
           <span v-if="rda.selectedPoint.value.l3" class="pill" :style="{ background: LEVEL_COLOR[rda.selectedPoint.value.l3.level] }">{{ tr(rda.selectedPoint.value.l3.level) }}</span>
           <span v-if="rda.selectedPoint.value.excluded" class="pill gray">{{ tr('评估剔除区') }}</span>
+          <span v-else-if="rda.selectedPoint.value.mostly_excluded" class="pill gray">{{ tr('多半在剔除区') }}</span>
         </h4>
         <dl class="kv">
           <dt>{{ tr('最大水深') }}</dt><dd>{{ f2(rda.selectedPoint.value.hmax_m) }} m（{{ tr('地面高程') }} {{ f2(rda.selectedPoint.value.ground_z_m) }} m）<template v-if="rda.selectedPoint.value.t_hmax_h != null">，{{ tr('出现在') }} {{ f2(rda.selectedPoint.value.t_hmax_h) }} h</template></dd>
@@ -213,7 +222,7 @@ const facCounts = computed(() => {
         </thead>
         <tbody>
           <tr v-for="p in rda.visiblePoints.value" :key="p.id" :class="{ cur: p.id === rda.selPoint.value }" @click="pickPoint(p.id)">
-            <td>{{ p.id.replace('SIM-', '') }}<i v-if="p.excluded" class="pill gray">{{ tr('剔') }}</i></td>
+            <td>{{ p.id.replace('SIM-', '') }}<i v-if="p.excluded || p.mostly_excluded" class="pill gray" :title="p.mostly_excluded ? tr('一半以上面积落在评估剔除区内，不计入热点覆盖') : ''">{{ tr('剔') }}</i></td>
             <td>{{ f2(p.hmax_m) }}<small class="tm">{{ at(p.t_hmax_h) }}</small></td>
             <td>{{ p.area_peak_m2 == null ? '—' : int(p.area_peak_m2) }}<small class="tm">{{ at(p.t_area_peak_h) }}</small></td>
             <td>{{ int(p.vol_peak_m3) }}<small class="tm">{{ at(p.t_peak_h) }}</small></td>

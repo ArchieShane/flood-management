@@ -158,6 +158,12 @@ const EN = {
   '最近客户热点': 'Nearest client hotspot',
   '200 m 内热点': 'Hotspots within 200 m',
   '覆盖的客户热点': 'Client hotspots covered',
+  '热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。':
+    '{a} of {n} patches lie within 200 m of a hotspot, {v} m³, {p}% of the ponded volume; the other {q}% is outside hotspot range.',
+  '已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。':
+    '{n} patch(es) not counted: more than half of their area lies in an assessment exclusion zone (marked "Ex" in the list), same rule as the client overlap analysis.',
+  '一半以上面积落在评估剔除区内，不计入热点覆盖': 'More than half of the area is in an exclusion zone; not counted for hotspot coverage',
+  '多半在剔除区': 'Mostly in exclusion zone',
   '按当前状态、当前阈值算出的积水点，200 m 内有积水点即算覆盖该热点；未覆盖 = 这一态下热点周边已没有达标的积水点。点编号可定位。':
     'Computed for the current state and thresholds: a hotspot is covered when a ponding point lies within 200 m of it; not covered = no qualifying ponding point is left around it in this state. Click a point ID to locate it.',
   '覆盖': 'Covered',

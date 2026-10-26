@@ -57,15 +57,17 @@ export function useRda(stateKey, { onError } = {}) {
     if (nearOnly.value) pts = pts.filter(p => (p.n_client_hotspots_200m || 0) > 0)
     if (pointFilter.value === 'notRecede') return pts.filter(p => p.receded === false)
     if (pointFilter.value === 'l3') return pts.filter(p => p.l3 && p.l3.measure && p.l3.measure !== '无需')
-    if (pointFilter.value === 'excluded') return pts.filter(p => p.excluded)
+    if (pointFilter.value === 'excluded') return pts.filter(p => p.excluded || p.mostly_excluded)
     return pts
   })
   /** 反查：这一态、当前阈值下算出的积水点，覆盖了哪些客户热点（点的 200 m 内热点清单反过来按热点聚合）。
       只读 `ponding.points[].near_hotspots`，不改任何原始数据；热点清单取判据里的 11 个。 */
   const hotspotCoverage = computed(() => {
-    const pts = ponding.value?.points
+    const all = ponding.value?.points
     const hs = crit.value?.hotspots
-    if (!pts || !hs) return null
+    if (!all || !hs) return null
+    // 一半以上面积落在评估剔除区内的片不计入（客户文档同口径：ADM-80 旁几片几乎全在 DTM 缺测区里）
+    const pts = all.filter(p => !p.mostly_excluded)
     const byHot = {}
     for (const p of pts) {
       for (const h of p.near_hotspots || []) (byHot[h.hotspot] ||= []).push({ id: p.id, dist_m: Number(h.dist_m), p })
@@ -79,7 +81,15 @@ export function useRda(stateKey, { onError } = {}) {
         peak_vol_m3: near.reduce((s, x) => s + (x.p.vol_peak_m3 || 0), 0),
       }
     })
-    return { rows, covered: rows.filter(r => r.covered).length, total: rows.length }
+    // 积水量按热点 200 m 内 / 范围之外拆（每片只算一次；不含被剔除的片）
+    const vol = x => x.reduce((s, p) => s + (p.vol_peak_m3 || 0), 0)
+    const total = vol(pts)
+    const inside = vol(pts.filter(p => (p.near_hotspots || []).length))
+    return {
+      rows, covered: rows.filter(r => r.covered).length, total: rows.length,
+      nPoints: pts.length, nExcluded: all.length - pts.length, nInside: pts.filter(p => (p.near_hotspots || []).length).length,
+      volTotal: total, volInside: inside, insidePct: total ? (inside / total) * 100 : null,
+    }
   })
   const selectedPoint = computed(() => (ponding.value?.points || []).find(p => p.id === selPoint.value) || null)
   const measureById = computed(() => Object.fromEntries((suggested.value?.measures || []).map(m => [m.id, m])))

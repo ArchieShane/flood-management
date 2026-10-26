@@ -248,6 +248,9 @@ def ponding(key: str, depth: str = "0.15") -> dict:
         r["excluded"] = bool(x and x["落在评估剔除区"] == "是")
         r["exclusion_note"] = x["剔除区说明"] if x else None
         r["area_after_exclusion_m2"] = x["扣除后 m²"] if x else None
+        # 客户文档（RD-A 模拟积水点与客户热点重合分析 2026-10-26）的口径：一半以上面积落在剔除区内的片不计入。
+        # 成果自带的「落在评估剔除区」判据更严（L1 一片都没标），所以另给这个标记，不改成果原字段
+        r["mostly_excluded"] = bool(x and r["area_m2"] and float(x["扣除后 m²"]) < 0.5 * float(r["area_m2"]))
         r["near_hotspots"] = near.get(r["id"], [])
         r["l3"] = _l3_row(l3[r["id"]]) if r["id"] in l3 else None
         # 未退的点 recede_h 为空，前端要「未退」二字
@@ -258,6 +261,7 @@ def ponding(key: str, depth: str = "0.15") -> dict:
         "peak_vol_sum_m3": sum(r["vol_peak_m3"] or 0 for r in rows),
         "not_receded": sum(r["receded"] is False for r in rows),
         "excluded": sum(r["excluded"] for r in rows),
+        "mostly_excluded": sum(r["mostly_excluded"] for r in rows),
         "points": rows,
     }
 
@@ -731,11 +735,12 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
     points.sort(key=lambda p: -p["vol_peak_m3"])
     for i, p in enumerate(points, 1):
         p.update({"id": f"SIM-{tag}-{i:03d}", "state": tag, "depth_threshold_m": depth, "min_area_m2": min_area,
-                  "min_duration_h": min_dur, "excluded": False, "exclusion_note": None, "area_after_exclusion_m2": None,
+                  "min_duration_h": min_dur, "excluded": False, "mostly_excluded": False, "exclusion_note": None,
+                  "area_after_exclusion_m2": None,
                   "l3": None, "status": "已退" if p["receded"] else "未退"})
     return {
         "state": key, "depth_m": depth, "min_area_m2": min_area, "min_duration_h": min_dur, "custom": True,
         "count": len(points), "peak_vol_sum_m3": sum(p["vol_peak_m3"] for p in points),
-        "not_receded": sum(not p["receded"] for p in points), "excluded": 0, "points": points,
+        "not_receded": sum(not p["receded"] for p in points), "excluded": 0, "mostly_excluded": 0, "points": points,
         "note": "按所给阈值从二维结果现算（三角网共边连片）；不扣地表塘占地，没有 L3 承接与评估剔除标记。",
     }

@@ -44,6 +44,20 @@ def test_ponding_has_peak_times_for_every_point():
     assert first["vol_peak_m3"] == 5752 and first["t_peak_h"] == 1.17 and first["hmax_m"] == 0.4   # 成果原值不动
 
 
+def test_mostly_excluded_matches_client_overlap_doc():
+    """客户文档《RD-A 模拟积水点与客户热点重合分析》L1、61 mm/1 h、≥0.15 m：剔除后 61 片、60,546 m³、
+    热点 200 m 内占 25%、11 个热点里 10 个在 200 m 内（ADM-80 旁的 6 片几乎全在 DTM 缺测剔除区里）。"""
+    p = client.get("/api/rda/states/L1/ponding?depth=0.15").json()
+    keep = [r for r in p["points"] if not r["mostly_excluded"]]
+    assert p["mostly_excluded"] == 6 and len(keep) == 61
+    assert sum(r["vol_peak_m3"] for r in keep) == 60546
+    near = {h["hotspot"] for r in keep for h in r["near_hotspots"]}
+    assert len(near) == 10 and "ADM-80" not in near
+    share = sum(r["vol_peak_m3"] for r in keep if r["near_hotspots"]) / 60546
+    assert round(share, 2) == 0.25
+    assert client.get("/api/rda/states/OPTCS2/ponding?depth=0.15").json()["mostly_excluded"] == 0
+
+
 def test_suggested_ledger_and_compliance():
     s = client.get("/api/rda/suggested").json()
     assert len(s["measures"]) == 60
