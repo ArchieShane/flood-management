@@ -16,6 +16,7 @@ export const RDA_KEY = { L1: 'L1', L2: 'L2', 'L2+planned': 'L2P', 'L2+suggested'
 /** 成果自带的积水点阈值：0.15 / 0.30 m、100 m²、0.5 h；别的组合走后端重算 */
 export const DELIVERED = { area: 100, dur: 0.5, depths: [0.15, 0.3] }
 export const DEPTH_CHOICES = [0.1, 0.15, 0.2, 0.3, 0.5]
+const RDA_STATES = ['L1', 'L2', 'L2P', 'OPTCS2']
 
 const overview = shallowRef(null)      // 总览：设施类型名等，整份成果只有一份，取一次
 const suggested = shallowRef(null)     // L2+suggested 措施台账，同上
@@ -85,12 +86,38 @@ export function useRda(stateKey, { onError } = {}) {
     const vol = x => x.reduce((s, p) => s + (p.vol_peak_m3 || 0), 0)
     const total = vol(pts)
     const inside = vol(pts.filter(p => (p.near_hotspots || []).length))
+    const covered = rows.filter(r => r.covered).length
     return {
-      rows, covered: rows.filter(r => r.covered).length, total: rows.length,
+      rows, covered, total: rows.length, rate: rows.length ? (covered / rows.length) * 100 : null,   // 热点覆盖率 = 被覆盖热点数 / 热点总数
       nPoints: pts.length, nExcluded: all.length - pts.length, nInside: pts.filter(p => (p.near_hotspots || []).length).length,
       volTotal: total, volInside: inside, insidePct: total ? (inside / total) * 100 : null,
     }
   })
+  /** 四个状态并排的覆盖率（同一套阈值）：热点覆盖率 = 被覆盖热点数 / 热点总数；积水量覆盖率 = 热点 200 m 内积水量占比。
+      口径与上面 `hotspotCoverage` 一致（剔除多半在剔除区的片）。切态、改阈值后后台重取，取不到的态给 null。 */
+  const coverageAll = shallowRef(null)
+  let covSeq = 0
+  async function loadCoverageAll() {
+    const my = ++covSeq
+    const ids = Object.keys(hotspotMeta.value).length ? Object.keys(hotspotMeta.value) : (crit.value?.hotspots || []).map(h => h.id)
+    if (!ids.length || !stateKey.value) { coverageAll.value = null; return }
+    const { depth, area, dur } = pp.value
+    const fetchOne = k => (isDelivered.value ? fetchRdaPonding(k, depth.toFixed(2)) : fetchRdaPondingCustom(k, depth, area, dur))
+    const out = await Promise.all(RDA_STATES.map(async k => {
+      try {
+        const pts = (await fetchOne(k)).points.filter(p => !p.mostly_excluded)
+        const near = new Set(pts.flatMap(p => (p.near_hotspots || []).map(h => h.hotspot)))
+        const covered = ids.filter(i => near.has(i)).length
+        const vol = x => x.reduce((s, p) => s + (p.vol_peak_m3 || 0), 0)
+        const total = vol(pts)
+        const inside = vol(pts.filter(p => (p.near_hotspots || []).length))
+        return { key: k, covered, total: ids.length, rate: (covered / ids.length) * 100, insidePct: total ? (inside / total) * 100 : null, nPoints: pts.length }
+      } catch {
+        return { key: k, covered: null, total: ids.length, rate: null, insidePct: null, nPoints: null }
+      }
+    }))
+    if (my === covSeq) coverageAll.value = out
+  }
   const selectedPoint = computed(() => (ponding.value?.points || []).find(p => p.id === selPoint.value) || null)
   const measureById = computed(() => Object.fromEntries((suggested.value?.measures || []).map(m => [m.id, m])))
   const selectedMeasure = computed(() => (selMeasure.value ? measureById.value[selMeasure.value] : null))
@@ -185,11 +212,12 @@ export function useRda(stateKey, { onError } = {}) {
 
   watch(stateKey, loadState)
   watch(pp, loadPonding)
+  watch([() => !!stateKey.value, pp, hotspotMeta], loadCoverageAll, { immediate: true })   // 换阈值 / 热点清单到齐后重算四态覆盖率
 
   return {
     stateKey, overview, suggested, ponding, l3, crit, fac, compliance, loading, error,
     pp, pf, isDelivered, formDirty, selPoint, selMeasure, selFac, pointFilter, nearOnly, showAllChecks, isSugg, kindName,
-    visiblePoints, hotspotCoverage, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
+    visiblePoints, hotspotCoverage, coverageAll, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
     loadState, loadPonding, applyThreshold, presetDepth, pickMeasure, ensureShared,
   }
 }
