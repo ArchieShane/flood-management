@@ -23,6 +23,8 @@ import RunCompare from '../components/sim/RunCompare.vue'
 import LevelPanel from '../components/sim/LevelPanel.vue'
 import PerfPanel from '../components/sim/PerfPanel.vue'
 import RdaPanels from '../components/rda/RdaPanels.vue'
+import PondingPointsPanel from '../components/sim/PondingPointsPanel.vue'
+import { usePondingPoints } from '../composables/usePondingPoints'
 import RunHyetograph from '../components/sim/RunHyetograph.vue'
 import RunSummary from '../components/sim/RunSummary.vue'
 import SimShell from '../components/sim/SimShell.vue'
@@ -87,16 +89,30 @@ const curState = computed(() => states.value?.find(s => s.key === stateKey.value
 /* ---- RD-A 全套成果（extent = RDA）：这条任务多出一组明细（积水点算法 / L3 派单 / 设施 / 判据 / 措施），
    不出「溢水点」「溢水量」——RD-A 有自己的积水点算法。数据与选中项在 useRda，和 /rda 页共用。 ---- */
 const isRda = computed(() => run.value?.extent === 'RDA')
+/** 全市任务（#100–102 / #561 / #1068）：总览只留总积水量 / 最大积水面积 / 最大积水深度 / 系统储水能力，
+    不出溢水点（图层 / 列表 / 个数）和溢水量，与 RD-A 一样 */
+const isCity = computed(() => run.value?.extent === 'City-wide' && !!run.value?.has_layers)
+const hideOverflow = computed(() => isRda.value || isCity.value)
 const rdaState = computed(() => (isRda.value ? RDA_KEY[stateKey.value] || 'OPTCS2' : null))
 const rda = useRda(rdaState, { onError: msg => toast.show(msg, 'var(--red)') })
 const rdaTab = ref('ponding')
 const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
+/* ---- 全市一二维任务（如 #1068 ADM 100 m）的模拟积水点：口径同 RD-A，数据与选中项在 usePondingPoints；
+   只有后端给了 points/ 的任务（run.has_ponding_points）才有，RD-A 自己走上面那套。 ---- */
+const ptsRunId = computed(() => (!isRda.value && run.value?.has_ponding_points ? run.value.id : null))
+const pts = usePondingPoints(ptsRunId, stateKey, { onError: msg => toast.show(msg, 'var(--red)') })
 const simPoints = computed(() => (isRda.value ? (rda.ponding.value?.points || []).map(p => ({
   id: p.id, lat: p.lat, lon: p.lon, vol: p.vol_peak_m3, color: LEVEL_COLOR[p.l3?.level] || '#d9434b',
   label: `${p.id} · ${p.hmax_m} m · ${Math.round(p.vol_peak_m3).toLocaleString('en-US')} m³`,
-})) : null))
+})) : pts.enabled.value ? pts.mapPoints.value : null))
+const simSelected = computed(() => (isRda.value ? rda.selPoint.value : pts.enabled.value ? pts.selPoint.value : null))
 watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immediate: true })
 function onSimPoint(id) {
+  if (pts.enabled.value) {
+    pts.selPoint.value = id
+    document.querySelector('.sd-pts')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
   rdaTab.value = 'ponding'
   rda.selPoint.value = id
   document.querySelector('.sd-rda')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -273,7 +289,7 @@ async function cancel() {
     </div>
 
     <div v-if="run?.has_layers && perf" class="sd-grid">
-      <ResultMap :key="`${run.id}|perf|${perfVs}`" :run-id="run.id" :state="perfVs" :ponding-state="states[0].key"
+      <ResultMap :key="`${run.id}|perf|${perfVs}`" :run-id="run.id" :state="perfVs" :ponding-state="states[0].key" :no-ledger="hideOverflow"
                  :pond-class="pondClass" :pond-popup="pondPopup" :pond-legend="pondLegend" :show-residual="false" fit-ponds
                  @hotspots="hotspots = $event" />
       <PerfPanel :data="perfFit" :error="perfErr" :rain="run.rain_label" :hotspots="hotspots" @h="setH" />
@@ -282,11 +298,11 @@ async function cancel() {
       <ResultMap ref="mapRef" :key="`${run.id}|${stateKey || ''}`" :run-id="run.id" :state="stateKey"
                  :l2-ponds="l2View && !states && l2?.ponds?.length ? l2.ponds : null"
                  :l2-note="isRda ? '' : planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
-                 :no-overflow="isRda" :sim-points="simPoints" :sim-selected="rda.selPoint.value" @simpoint="onSimPoint"
+                 :no-overflow="hideOverflow" :no-ledger="hideOverflow" :no-pond-points="pts.enabled.value" :sim-points="simPoints" :sim-selected="simSelected" @simpoint="onSimPoint"
                  @meta="layerMeta = $event" @ponding="onPonding" @active="pondActive = $event" @now="mapNow = $event" @hotspots="hotspots = $event" />
       <RunCompare v-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
-      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="isRda"
+      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="hideOverflow" :no-pond-points="pts.enabled.value"
                   :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
     </div>
     <RunCompare v-else-if="run && compare" class="sd-cmp-solo" :run="run" @open="openLine" />
@@ -294,6 +310,11 @@ async function cancel() {
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
       <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
+    </section>
+
+    <!-- 全市一二维任务的模拟积水点：口径同 RD-A（阈值可调、热点覆盖率、最大值时刻），随地图上选的态走 -->
+    <section v-if="pts.enabled.value && run?.has_layers && !perf" class="sim-card sd-rda sd-pts">
+      <PondingPointsPanel :pts="pts" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
     </section>
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">

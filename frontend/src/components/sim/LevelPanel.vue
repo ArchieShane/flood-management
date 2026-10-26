@@ -27,7 +27,8 @@ const props = defineProps({
   stateKey: { type: String, default: null },
   l2View: { type: Boolean, default: false },   // 全市任务的第二道现状视图（?line=l2）
   meta: { type: Object, default: null },       // /layers
-  noOverflow: { type: Boolean, default: false },   // RD-A：有自己的积水点算法，不出溢水点 / 溢水量两行
+  noOverflow: { type: Boolean, default: false },   // RD-A、全市任务：不出溢水点 / 溢水量两行（全市只留总积水量 / 最大面积 / 最大深度 / 储水能力）
+  noPondPoints: { type: Boolean, default: false }, // 全市一二维（#1068）：模拟积水点已替代溢水点，只藏「溢水点」一行与前 10 名
   ponding: { type: Object, default: null },    // 地图已取回的 /layers/ponding（多态时是当前态自己的）
   active: { type: Number, default: null },
   now: { type: Object, default: null },        // 地图时间过程下的本帧当前值（ResultMap 的 now）；null = 看全程
@@ -124,7 +125,7 @@ watch(() => [props.now != null, stateCols.value?.map(c => c.key).join()], ([on])
 })
 // 全程溢水点：非当前态各取一次 /layers/ponding
 watch(() => [props.now == null, stateCols.value?.map(c => c.key).join()], ([on]) => {
-  if (!on || !stateCols.value) return
+  if (!on || !stateCols.value || props.noPondPoints || props.noOverflow) return    // 溢水点不出，就不去取它们
   const id = props.run.id
   const curKey = props.stateKey || props.states[0].key
   for (const c of stateCols.value) {
@@ -159,6 +160,7 @@ const cityRows = computed(() => {
   const l1 = {
     ponding: n ? n.ponding ?? null : pondCount(props.ponding),
     overflow: shown('overflow', n ? n.overflow : l2.value.l1_network?.overflow_to_surface_m3),
+    volume: shown('volume', n ? n.volume : r.peak_surface_volume_m3),      // 总积水量：交付没有水量序列就是 null，整块不出
     area: shown('area', n ? n.area : layerArea(r)),
     depth: shown('depth', n ? n.depth : r.maximum_depth_m),
     storage: storageCmp.value?.l1 ?? null,
@@ -168,7 +170,7 @@ const cityRows = computed(() => {
     const f = x => (x == null || keep.value == null ? null : x * keep.value)
     rows.push({
       key: 'l2', label: lineName('line2_current'),
-      v: { ponding: l1.ponding, overflow: f(l1.overflow), area: f(l1.area), depth: f(l1.depth), storage: storageCmp.value?.l2 ?? null },
+      v: { ponding: l1.ponding, overflow: f(l1.overflow), volume: f(l1.volume), area: f(l1.area), depth: f(l1.depth), storage: storageCmp.value?.l2 ?? null },
     })
   }
   return rows
@@ -239,7 +241,7 @@ const scopeRows = computed(() => stateCols.value?.map(c => {
   } }
 }) ?? null)
 
-const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow'))
+const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow')) && !(props.noPondPoints && x.k === 'ponding')
 /** 总积水量：这份交付拿不出（没有逐帧水量序列）就整块不出，不放一个「—」占位 */
 const hasVolume = rs => (rs || []).some(r => r.v.volume != null)
 const dims = computed(() => inScope.value

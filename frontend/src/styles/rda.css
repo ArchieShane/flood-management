@@ -32,6 +32,10 @@
 .rda-ui .tbl th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line-2); }
 .rda-ui .tbl td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .rda-ui .tbl tbody tr { cursor: pointer; }
+.rda-ui .hot-q { margin-left: 8px; padding: 3px 8px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: inherit; min-width: 140px; }
+.rda-ui .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #868e96; }
+.rda-ui .dot.flooded { background: #d9434b; }
+.rda-ui .dot.shallow { background: #e0a44e; }
 .rda-ui details.logic { margin: 6px 0 8px; font-size: 12px; color: var(--fg-2); }
 .rda-ui details.logic summary { cursor: pointer; color: var(--blue-lt, #6ab0ff); }
 .rda-ui details.logic ol { margin: 6px 0 0; padding-left: 18px; line-height: 1.55; }

@@ -2,7 +2,7 @@
 // 用法：node scripts/check-rda-i18n.mjs      （改了 views/RdaView.vue 里的中文原串后跑一次）
 import { readFileSync } from 'node:fs'
 
-const FILES = ['../src/views/RdaView.vue', '../src/components/rda/RdaPanels.vue', '../src/views/SimulationHome.vue', '../src/views/SimulationDetail.vue']
+const FILES = ['../src/views/RdaView.vue', '../src/components/rda/RdaPanels.vue', '../src/components/rda/PondingTab.vue', '../src/components/sim/PondingPointsPanel.vue', '../src/views/SimulationHome.vue', '../src/views/SimulationDetail.vue']
 const view = FILES.map(f => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n')
 const dictSrc = readFileSync(new URL('../src/i18n/rda.js', import.meta.url), 'utf8')
 

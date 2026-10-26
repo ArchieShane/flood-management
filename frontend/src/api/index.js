@@ -74,6 +74,10 @@ export const fetchSimulationStorage = (id, state) => get(`/api/simulations/${id}
 export const fetchSimulationFacilities = (id, state) => get(`/api/simulations/${id}/layers/facilities${stateQ(state)}`)
 /** 交付自带的积水点（如 C1 的 8 个热点）：坐标 / 汇水区面 / 逐态统计，不带 ?state=；没有的任务 404。 */
 export const fetchSimulationHotspots = id => get(`/api/simulations/${id}/hotspots`)
+/** 模拟积水点（口径同 RD-A，`city_ponding.py`）：元信息（态 / 热点 / 域外热点）与按阈值现算的清单；没有的任务 404。 */
+export const fetchPondingPointsMeta = id => get(`/api/simulations/${id}/ponding-points/meta`)
+export const fetchPondingPoints = (id, state, depth, minArea, minDur) =>
+  get(`/api/simulations/${id}/ponding-points?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
 export const fetchSimulationResidual = (id, state) => get(`/api/simulations/${id}/layers/residual${stateQ(state)}`)
 /** 拟建调蓄池多边形（与任务无关，后端已转 WGS84，属性原样透传）。 */
 export const fetchProposedPonds = () => get('/api/simulations/layers/proposed-ponds')
