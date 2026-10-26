@@ -31,6 +31,19 @@ def test_ponding_joins_l3_only_for_015():
     assert client.get("/api/rda/states/OPTCS2/ponding?depth=0.2").status_code == 404
 
 
+def test_ponding_has_peak_times_for_every_point():
+    """最大面积 / 最大水深的时刻是现算补上的列：每个成果点都对得上，且不改成果自带字段。"""
+    for st in ("L1", "L2", "L2P", "OPTCS2"):
+        for dep in ("0.15", "0.30"):
+            p = client.get(f"/api/rda/states/{st}/ponding?depth={dep}").json()
+            for r in p["points"]:
+                assert r["area_peak_m2"] is not None, (st, dep, r["id"])
+                assert 0 < r["area_peak_m2"] <= r["area_m2"] + 1          # 同一时刻的面积不会超过「全程最大水深 ≥ 阈值」的并集
+                assert 0 <= r["t_area_peak_h"] <= r["t_end_h"] and 0 <= r["t_hmax_h"] <= r["t_end_h"]
+    first = client.get("/api/rda/states/OPTCS2/ponding?depth=0.15").json()["points"][0]
+    assert first["vol_peak_m3"] == 5752 and first["t_peak_h"] == 1.17 and first["hmax_m"] == 0.4   # 成果原值不动
+
+
 def test_suggested_ledger_and_compliance():
     s = client.get("/api/rda/suggested").json()
     assert len(s["measures"]) == 60

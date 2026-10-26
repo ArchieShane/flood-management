@@ -252,6 +252,7 @@ def ponding(key: str, depth: str = "0.15") -> dict:
         r["l3"] = _l3_row(l3[r["id"]]) if r["id"] in l3 else None
         # 未退的点 recede_h 为空，前端要「未退」二字
         r["status"] = "未退" if r["receded"] is False else "已退"
+    _add_peak_times(key, dep, rows)
     return {
         "state": key, "depth_m": float(dep), "count": len(rows),
         "peak_vol_sum_m3": sum(r["vol_peak_m3"] or 0 for r in rows),
@@ -259,6 +260,27 @@ def ponding(key: str, depth: str = "0.15") -> dict:
         "excluded": sum(r["excluded"] for r in rows),
         "points": rows,
     }
+
+
+PEAK_TIME_FIELDS = ("area_peak_m2", "t_area_peak_h", "t_hmax_h")
+
+
+def _add_peak_times(key: str, dep: str, rows: list[dict]) -> None:
+    """成果清单只给了峰值积水量的时刻（`t_peak_h`）；最大面积和最大水深出现在哪个时刻要从逐帧水深现算。
+
+    用成果的默认阈值（100 m²、0.5 h）从二维结果重算同一批片，按「最深单元的经纬度」对上成果清单的行，
+    且峰值积水量、峰值时刻也相等才采用（默认阈值下与成果逐点一致，见 `test_rda.py`）；对不上的行填 None，
+    **不改清单里任何已有字段**。读不了二维结果（缺文件 / 缺 scipy）时整批填 None。
+    """
+    try:
+        c = {(round(p["lon"], 5), round(p["lat"], 5)): p for p in ponding_custom(key, float(dep), 100.0, 0.5)["points"]}
+    except Exception:
+        c = {}
+    for r in rows:
+        q = c.get((round(float(r["lon"]), 5), round(float(r["lat"]), 5)))
+        ok = bool(q) and q["vol_peak_m3"] == r["vol_peak_m3"] and abs(q["t_peak_h"] - r["t_peak_h"]) < 0.01
+        for f in PEAK_TIME_FIELDS:
+            r[f] = q[f] if ok else None
 
 
 def _l3_row(r: dict) -> dict:
@@ -680,6 +702,8 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
                 continue
             vol = (Fc * ca).sum(axis=1)
             ip = int(vol.argmax())
+            ia = int(a_t.argmax())                       # 同一时刻片内 ≥depth 的面积最大的那一帧
+            ih = int(Fc.max(axis=1).argmax())            # 片内水深最大的那一帧
             after = np.nonzero(a_t[ip:] < min_area)[0]
             receded = bool(len(after))
             deep = int(cells[hmax[cells].argmax()])
@@ -695,6 +719,9 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
                 "hmax_m": round(float(hmax[deep]), 2), "ground_z_m": round(float(elev[deep]), 2),
                 "area_m2": int(round(ca.sum())), "area_ge030_m2": int(round(ca[hmax[cells] >= 0.30].sum())),
                 "duration_h": round(dur, 2), "vol_peak_m3": int(round(float(vol[ip]))), "t_peak_h": round(float(t[ip]), 2),
+                # 三个「最大值在哪个时刻」：积水量见 t_peak_h；最大面积 = 同一时刻 ≥depth 的面积之和最大（不是各单元最大水深的并集 area_m2）
+                "area_peak_m2": int(round(float(a_t[ia]))), "t_area_peak_h": round(float(t[ia]), 2),
+                "t_hmax_h": round(float(t[ih]), 2),
                 "receded": receded, "recede_h": round(float(after[0] * dt), 2) if receded else None,
                 "vol_end_m3": int(round(float(vol[-1]))), "t_end_h": round(float(t[-1]), 1),
                 "nearest_client_hotspot": hid[order[0]], "nearest_client_hotspot_dist_m": int(round(dist[order[0]])),

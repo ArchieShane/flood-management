@@ -23,6 +23,8 @@ const f2 = v => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximum
 const int = v => (v == null ? '—' : Math.round(Number(v)).toLocaleString('en-US'))
 const musd = v => (v == null ? '—' : (Number(v) / 1e6).toFixed(2))
 const dn = m => Math.round((m || 0) * 1000)
+/** 峰值出现时刻（从降雨开始，h）：表格里跟在数值下面 */
+const at = h => (h == null ? '' : `@ ${Number(h).toFixed(2)} h`)
 
 const KIND_COLOR = {
   ps_l1: '#9aa3ad', mobile: '#e0a44e', ps_planned: '#a07be0',
@@ -122,6 +124,23 @@ const facCounts = computed(() => {
           <a v-if="!rda.isDelivered.value" href="#" @click.prevent="rda.presetDepth(0.15)">{{ tr('回到成果自带') }}</a>
         </p>
       </div>
+      <div v-if="rda.hotspotCoverage.value" class="card">
+        <h4>{{ tr('覆盖的客户热点') }} {{ rda.hotspotCoverage.value.covered }} / {{ rda.hotspotCoverage.value.total }}</h4>
+        <p class="muted small">{{ tr('按当前状态、当前阈值算出的积水点，200 m 内有积水点即算覆盖该热点；未覆盖 = 这一态下热点周边已没有达标的积水点。点编号可定位。') }}</p>
+        <table class="tbl">
+          <thead><tr><th>{{ tr('热点') }}</th><th>{{ tr('覆盖') }}</th><th>{{ tr('覆盖它的积水点（距离）') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="h in rda.hotspotCoverage.value.rows" :key="h.id">
+              <td :title="h.location">{{ h.id }}<span v-if="h.area" class="muted small"> · {{ h.area }}</span></td>
+              <td><b :class="h.covered ? 'bad' : 'ok'">{{ h.covered ? tr('覆盖') : tr('未覆盖') }}</b></td>
+              <td>
+                <a v-for="x in h.points" :key="x.id" href="#" class="chip" @click.prevent="pickPoint(x.id)">{{ x.id.replace('SIM-', '') }} {{ x.dist_m }} m</a>
+                <span v-if="!h.points.length" class="muted">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div class="row">
         <span class="seg">
           <button :class="{ on: rda.pointFilter.value === 'all' }" @click="rda.pointFilter.value = 'all'">{{ tr('全部') }}</button>
@@ -142,8 +161,11 @@ const facCounts = computed(() => {
           <span v-if="rda.selectedPoint.value.excluded" class="pill gray">{{ tr('评估剔除区') }}</span>
         </h4>
         <dl class="kv">
-          <dt>{{ tr('最大水深') }}</dt><dd>{{ f2(rda.selectedPoint.value.hmax_m) }} m（{{ tr('地面高程') }} {{ f2(rda.selectedPoint.value.ground_z_m) }} m）</dd>
+          <dt>{{ tr('最大水深') }}</dt><dd>{{ f2(rda.selectedPoint.value.hmax_m) }} m（{{ tr('地面高程') }} {{ f2(rda.selectedPoint.value.ground_z_m) }} m）<template v-if="rda.selectedPoint.value.t_hmax_h != null">，{{ tr('出现在') }} {{ f2(rda.selectedPoint.value.t_hmax_h) }} h</template></dd>
           <dt>{{ tr('面积') }}</dt><dd>{{ int(rda.selectedPoint.value.area_m2) }} m²（{{ tr('其中') }} ≥0.30 m：{{ int(rda.selectedPoint.value.area_ge030_m2) }} m²）</dd>
+          <template v-if="rda.selectedPoint.value.area_peak_m2 != null">
+            <dt>{{ tr('最大积水面积') }}</dt><dd>{{ int(rda.selectedPoint.value.area_peak_m2) }} m²，{{ tr('出现在') }} {{ f2(rda.selectedPoint.value.t_area_peak_h) }} h</dd>
+          </template>
           <dt>{{ tr('峰值积水量') }}</dt><dd>{{ int(rda.selectedPoint.value.vol_peak_m3) }} m³，{{ tr('出现在') }} {{ f2(rda.selectedPoint.value.t_peak_h) }} h</dd>
           <dt>{{ tr('持续') }}</dt><dd>{{ f2(rda.selectedPoint.value.duration_h) }} h</dd>
           <dt>{{ tr('退水') }}</dt>
@@ -185,14 +207,16 @@ const facCounts = computed(() => {
       <table class="tbl">
         <thead>
           <tr>
-            <th>{{ tr('编号') }}</th><th>{{ tr('最深 m') }}</th><th>{{ tr('面积 m²') }}</th><th>{{ tr('峰值 m³') }}</th><th>{{ tr('退水') }}</th>
+            <th>{{ tr('编号') }}</th><th>{{ tr('最大水深 m（时刻）') }}</th><th>{{ tr('最大面积 m²（时刻）') }}</th><th>{{ tr('最大积水量 m³（时刻）') }}</th><th>{{ tr('退水') }}</th>
             <th v-if="!rda.ponding.value?.custom">{{ tr('等级') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="p in rda.visiblePoints.value" :key="p.id" :class="{ cur: p.id === rda.selPoint.value }" @click="pickPoint(p.id)">
             <td>{{ p.id.replace('SIM-', '') }}<i v-if="p.excluded" class="pill gray">{{ tr('剔') }}</i></td>
-            <td>{{ f2(p.hmax_m) }}</td><td>{{ int(p.area_m2) }}</td><td>{{ int(p.vol_peak_m3) }}</td>
+            <td>{{ f2(p.hmax_m) }}<small class="tm">{{ at(p.t_hmax_h) }}</small></td>
+            <td>{{ p.area_peak_m2 == null ? '—' : int(p.area_peak_m2) }}<small class="tm">{{ at(p.t_area_peak_h) }}</small></td>
+            <td>{{ int(p.vol_peak_m3) }}<small class="tm">{{ at(p.t_peak_h) }}</small></td>
             <td :class="p.receded ? '' : 'bad'">{{ p.receded ? f1(p.recede_h) + ' h' : tr('未退') }}</td>
             <td v-if="!rda.ponding.value?.custom">
               <span v-if="p.l3" class="pill" :style="{ background: LEVEL_COLOR[p.l3.level] }">{{ tr(p.l3.level) }}</span>

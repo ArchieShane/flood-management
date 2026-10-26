@@ -6,7 +6,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 
 import {
   fetchRdaCompliance, fetchRdaCriteria, fetchRdaFacilities, fetchRdaL3, fetchRdaOverview,
-  fetchRdaPonding, fetchRdaPondingCustom, fetchRdaSuggested,
+  fetchRdaHotspots, fetchRdaPonding, fetchRdaPondingCustom, fetchRdaSuggested,
 } from '../api'
 import { tr } from '../i18n/rda'
 
@@ -19,8 +19,10 @@ export const DEPTH_CHOICES = [0.1, 0.15, 0.2, 0.3, 0.5]
 
 const overview = shallowRef(null)      // 总览：设施类型名等，整份成果只有一份，取一次
 const suggested = shallowRef(null)     // L2+suggested 措施台账，同上
+const hotspotMeta = shallowRef({})     // 11 个客户热点的片区 / 严重度（id → properties），同上只取一次
 let overviewReq = null
 let suggestedReq = null
+let hotspotReq = null
 
 export function ledgerId(fid) {
   return String(fid).replace(/_g$/, '').replace(/^(SP\d+)_\d+$/, '$1')
@@ -57,6 +59,27 @@ export function useRda(stateKey, { onError } = {}) {
     if (pointFilter.value === 'l3') return pts.filter(p => p.l3 && p.l3.measure && p.l3.measure !== '无需')
     if (pointFilter.value === 'excluded') return pts.filter(p => p.excluded)
     return pts
+  })
+  /** 反查：这一态、当前阈值下算出的积水点，覆盖了哪些客户热点（点的 200 m 内热点清单反过来按热点聚合）。
+      只读 `ponding.points[].near_hotspots`，不改任何原始数据；热点清单取判据里的 11 个。 */
+  const hotspotCoverage = computed(() => {
+    const pts = ponding.value?.points
+    const hs = crit.value?.hotspots
+    if (!pts || !hs) return null
+    const byHot = {}
+    for (const p of pts) {
+      for (const h of p.near_hotspots || []) (byHot[h.hotspot] ||= []).push({ id: p.id, dist_m: Number(h.dist_m), p })
+    }
+    const rows = hs.map(h => {
+      const near = (byHot[h.id] || []).sort((a, b) => a.dist_m - b.dist_m)
+      const m = hotspotMeta.value[h.id] || {}
+      return {
+        id: h.id, area: m.area, criticality: m.criticality_zh, location: m.location, max_m: h.max_m,
+        covered: near.length > 0, points: near,
+        peak_vol_m3: near.reduce((s, x) => s + (x.p.vol_peak_m3 || 0), 0),
+      }
+    })
+    return { rows, covered: rows.filter(r => r.covered).length, total: rows.length }
   })
   const selectedPoint = computed(() => (ponding.value?.points || []).find(p => p.id === selPoint.value) || null)
   const measureById = computed(() => Object.fromEntries((suggested.value?.measures || []).map(m => [m.id, m])))
@@ -144,7 +167,10 @@ export function useRda(stateKey, { onError } = {}) {
   function ensureShared() {
     overviewReq ||= fetchRdaOverview().then(o => (overview.value = o)).catch(() => { overviewReq = null })
     suggestedReq ||= fetchRdaSuggested().then(s => (suggested.value = s)).catch(() => { suggestedReq = null })
-    return Promise.all([overviewReq, suggestedReq])
+    hotspotReq ||= fetchRdaHotspots()
+      .then(g => (hotspotMeta.value = Object.fromEntries((g.features || []).map(f => [f.properties.hotspot_id, f.properties]))))
+      .catch(() => { hotspotReq = null })
+    return Promise.all([overviewReq, suggestedReq, hotspotReq])
   }
 
   watch(stateKey, loadState)
@@ -153,7 +179,7 @@ export function useRda(stateKey, { onError } = {}) {
   return {
     stateKey, overview, suggested, ponding, l3, crit, fac, compliance, loading, error,
     pp, pf, isDelivered, formDirty, selPoint, selMeasure, selFac, pointFilter, nearOnly, showAllChecks, isSugg, kindName,
-    visiblePoints, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
+    visiblePoints, hotspotCoverage, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
     loadState, loadPonding, applyThreshold, presetDepth, pickMeasure, ensureShared,
   }
 }
