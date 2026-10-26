@@ -287,6 +287,8 @@ def get_run(conn: psycopg.Connection, run_id: int, lang: str) -> dict[str, Any]:
     row["defence_basis"] = row.get("defence_basis") or defence_basis(row["defence_line_key"], output_dir)
     row["has_layers"] = bool(output_dir)
     row["has_l2"] = sim_l2.has_l2(row, output_dir)
+    from . import city_ponding   # 惰性：要 numpy / scipy，别拖慢只列表的调用
+    row["has_ponding_points"] = city_ponding.has_points(output_dir)    # 详情页要不要出「模拟积水点」那一块
     row["states"], row["state_default"] = _states(conn, output_dir, col, lang)
     row["resources"] = conn.execute(
         f"""

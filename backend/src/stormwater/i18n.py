@@ -402,6 +402,7 @@ EN: dict[str, str] = {
     "这一态模型里没有储水设施": "This state has no storage facilities in its model",
     "这一态没有交付设施 GIS": "This state has no delivered facility GIS",
     "这个任务没有积水点": "This task has no hotspots",
+    "这个任务没有模拟积水点": "This task has no simulated ponding points",
     "没有这一帧": "No such frame",
     "这份成果算不出溢水点": "Overflow points cannot be derived from this run's outputs",
     "这份成果拆不出残留积水的成因": "Residual ponding cannot be broken down for this run's outputs",

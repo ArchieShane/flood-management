@@ -505,6 +505,13 @@ def import_all(root: Path, by: str | None = None, only: list[str] | None = None)
     from . import simulation as sim
 
     base = extract(root, only)
+    if layout_of(root.resolve()) == "adm":
+        # 详情页的「模拟积水点」（口径同 RD-A）要用二维结果 + 网格邻接；交付里没带 .sww 就只是不出这一块，不挡登记
+        try:
+            from . import city_ponding
+            city_ponding.prepare(root)
+        except Exception as e:      # noqa: BLE001
+            print(f"  模拟积水点未生成（{e}）；补上 .sww 后跑 python -m stormwater.city_ponding prepare <交付目录>")
     keys = [s["key"] for s in json.loads((base / "states.json").read_text(encoding="utf-8"))["states"]]
     top = max((STATES[k][1] for k in keys), key=sim.LINE_ORDER.index)
     with sim.connect() as conn:
