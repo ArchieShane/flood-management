@@ -68,6 +68,13 @@
 .rda-ui .thr .go { background: var(--blue); border: 0; color: #fff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .rda-ui .thr .go:disabled { opacity: 0.4; cursor: default; }
 .rda-ui .thr a { color: var(--blue-lt); margin-left: 8px; }
+.rda-ui .buf { margin: 10px 0; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.rda-ui .buf h5 { margin: 0 0 6px; font-size: 13px; color: var(--fg); }
+.rda-ui .buf input[type='number'] { width: 70px; }
+.rda-ui .formula { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--blue); background: var(--card); border-radius: 4px; font-size: 12px; line-height: 1.6; color: var(--fg-2); }
+.rda-ui .formula code { display: block; margin: 2px 0 4px; font-size: 12.5px; color: var(--fg); white-space: normal; }
+.rda-ui .formula ol { margin: 4px 0 0; padding-left: 18px; }
+.rda-ui .tbl.pairs { margin-top: 6px; }
 .rda-ui .curves { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .rda-ui .curve { background: var(--card-2); border-radius: 6px; padding: 4px 6px; }
 .rda-ui .curve b { font-size: 12px; }

@@ -4,7 +4,7 @@
    · 距离 = 热点到最近积水片边界的平面距离（后端 `hotspot_dist.py` 量好，前端只用 near_hotspots / hotspot_bins）；
    · 覆盖 = 某个积水点 200 m 内有该热点；一半以上面积落在评估剔除区内的片（`mostly_excluded`）不计入；
    · 积水量覆盖率 = 热点 200 m 内的积水点的峰值积水量之和 / 全部（不含被剔除的）积水点的峰值积水量之和，每个点只算一次。 */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 
 export const SHOW_LIMIT = 100        // 积水点列表默认只出前 N 片（按峰值积水量降序），全市一份清单上千片
 
@@ -72,6 +72,42 @@ export function useHotspotList(coverage, stateKey) {
     flooded: hotspotAll.value.filter(r => r.st.class === 'flooded').length,
   }))
   return { hotQuery, hotFilter, hotLimit, hotspotList, hotspotCounts }
+}
+
+export const BUF_DEFAULT = 0.15      // 圆内积水量的水深阈值默认值（同积水点阈值）
+
+/** 热点 200 m 圆内的地表峰值积水量 + 圆重叠（后端 `hotspot_buffer.py`）。阈值单独一栏（bf 表单 / bp 已生效），
+    改了不影响积水点清单与覆盖率。`deps` 是会让结果作废的 ref（态、任务号…），`load(depth)` 返回 Promise，不该取时返回 null。 */
+export function useHotspotBuffer(deps, load, { onError } = {}) {
+  const bp = ref(BUF_DEFAULT)
+  const bf = ref(BUF_DEFAULT)
+  const data = shallowRef(null)
+  const loading = ref(false)
+  let seq = 0
+  async function run() {
+    const my = ++seq
+    const p = load(bp.value)
+    if (!p) { data.value = null; loading.value = false; return }
+    loading.value = true
+    try {
+      const r = await p
+      if (my === seq) data.value = r
+    } catch (e) {
+      if (my === seq) { data.value = null; onError?.(e.message) }
+    } finally {
+      if (my === seq) loading.value = false
+    }
+  }
+  watch([bp, ...deps], run, { immediate: true })
+  const dirty = computed(() => Number(bf.value) !== bp.value)
+  function apply() {
+    const v = Number(bf.value)
+    if (!(v >= 0.05 && v <= 3)) { onError?.('水深阈值要在 0.05–3 m 之间'); return }
+    bp.value = v
+  }
+  function reset() { bf.value = BUF_DEFAULT; bp.value = BUF_DEFAULT }
+  const byId = computed(() => Object.fromEntries((data.value?.hotspots || []).map(h => [h.id, h])))
+  return { bf, bp, dirty, data, loading, apply, reset, byId }
 }
 
 /** 积水点列表：筛选（未退 / 要 L3 / 剔除区 / 只看热点 200 m 内）+ 默认只出前 SHOW_LIMIT 片 */

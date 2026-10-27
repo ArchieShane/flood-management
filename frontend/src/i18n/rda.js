@@ -263,6 +263,69 @@ const EN = {
     'This only compares locations and is not model validation: the hotspots have no depth, extent or date, and the model is not calibrated. "Covered x / 11" is not the same as the A / B / C pass marks on the Criteria tab, nor the reduction in ponded area.',
   '热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。':
     '{a} of {n} patches lie within 200 m of a hotspot, {v} m³, {p}% of the ponded volume; the other {q}% is outside hotspot range.',
+  '热点 200 m 圆内的地表峰值积水量': 'Peak surface ponded volume within the 200 m circle of each hotspot',
+  '客户热点只有一个坐标、没有积水面，所以把以它为圆心、半径 200 m 的圆当作它的积水面，圆内按水深阈值取水。这一栏的阈值只管下面的圆内积水量，不影响上面的积水点和覆盖率。':
+    'A client hotspot is only a coordinate with no ponded surface, so the circle of radius 200 m around it is taken as its ponding surface and water in the circle is counted by a depth threshold. This threshold only affects the in-circle volumes below, not the ponding points or coverage above.',
+  '计算中…': 'Computing…',
+  '关注热点圆内积水量占全域（{a} m³ ÷ {b} m³；水深 ≥ {d} m）':
+    'Share of domain ponding inside the hotspot circles ({a} m³ ÷ {b} m³; depth ≥ {d} m)',
+  '不设阈值：{a} m³ ÷ 总积水量 {b} m³': 'No threshold: {a} m³ ÷ total ponded volume {b} m³',
+  '关注热点的积水量占全域积水量的比例': 'Share of domain ponded volume that lies in the hotspot circles',
+  '口径': 'Basis',
+  '分子：热点 200 m 圆内（并集）': 'Numerator: inside hotspot 200 m circles (union)',
+  '分母：全域': 'Denominator: whole domain',
+  '占比': 'Share',
+  '水深 ≥ {d} m（跟着上面的阈值）': 'Depth ≥ {d} m (follows the threshold above)',
+  '分子分母都扣评估剔除区': 'Exclusion zones removed from both',
+  '不设阈值（所有水深都加）': 'No threshold (all depths added)',
+  '不扣剔除区，分母 = 右侧总览的「总积水量」': 'Exclusion zones not removed; the denominator is the overview "total ponded volume" on the right',
+  '分母': 'Denominator',
+  '分子': 'Numerator',
+  '全域所有单元': 'all cells',
+  '所有热点圆的并集': 'union of hotspot circles',
+  '（有阈值时只加 h ≥ 阈值 的单元）': '(with a threshold only cells with h ≥ threshold are added)',
+  '（同一口径，重叠的单元只算一次）': '(same basis; overlapping cells counted once)',
+  '也就是说：分母是把整个计算域里每个单元每一帧的「水深 × 面积」加起来，取全部帧里最大的那一帧（出现在上表的时刻）；分子是同样的算法，只是范围缩到热点圆里。两者各取自己的峰值时刻。':
+    'In words: the denominator adds depth × area over every cell of the whole computational domain for each frame and takes the largest frame (at the time shown in the table); the numerator uses the same method restricted to the hotspot circles. Each takes its own peak time.',
+  '积水量怎么算': 'How the volume is computed',
+  '（只加 h ≥ 阈值 的单元 i）': '(only cells i with h ≥ threshold are added)',
+  '热点的地表峰值积水量': 'Peak surface ponded volume of a hotspot',
+  '圆内单元：单元形心到热点 ≤ 200 m。圆面积 π × 200² ≈ {a} m²，当作这个热点的积水面。':
+    'Cells in the circle: cell centroid within 200 m of the hotspot. Circle area π × 200² ≈ {a} m², taken as the hotspot\'s ponding surface.',
+  'h(t) 是单元在第 t 帧的水深（m），A 是单元面积（m²）；水深低于阈值（当前 {d} m）的单元不加，避免薄水膜把量撑大。':
+    'h(t) is the cell depth (m) at frame t and A is the cell area (m²); cells shallower than the threshold (now {d} m) are not added, so a thin film of water does not inflate the volume.',
+  'V(t) 逐帧都算，取全部帧里最大的一个，所以每个热点的峰值时刻不同，是量级参考，不是某一时刻的水量。':
+    'V(t) is computed for every frame and the largest is taken, so each hotspot peaks at a different time; it is an order-of-magnitude reference, not the water at one moment.',
+  '重叠': 'Overlap',
+  '两个热点相距小于 400 m 时圆相交，重叠区里的单元会被两个圆都数到，所以各热点的圆内积水量不能直接相加。总量取「所有圆的并集」：每个单元只算一次，再按同样的公式算。':
+    'When two hotspots are less than 400 m apart their circles intersect and cells in the overlap are counted in both circles, so the in-circle volumes of the hotspots must not simply be added. The total is taken over the union of all circles: each cell once, then the same formula.',
+  '落在评估剔除区内的单元不算（与积水点覆盖剔除多半在剔除区的片同口径）。':
+    'Cells inside an assessment exclusion zone are not counted (same rule as dropping patches mostly in the exclusion zone from coverage).',
+  '这是「圆内」的量，不是积水点的峰值积水量，两者不能比；圆内也可能有与热点无关的水（河道、洼地）。圆按单元形心取，边缘有取舍误差，网格越粗越明显。':
+    'This is an in-circle quantity, not the peak volume of a ponding point, so the two cannot be compared; the circle may also contain water unrelated to the hotspot (channels, depressions). The circle is cut by cell centroids, so the edge has a rounding error that grows with grid size.',
+  '并集峰值积水量（每个单元只算一次）': 'Peak volume of the union (each cell once)',
+  '各热点圆内峰值直接相加': 'In-circle peaks added directly',
+  '重复算的量（相加比并集多出的，占相加的 {p}%）': 'Double counted (the excess of the sum over the union, {p}% of the sum)',
+  '{a} / {n} 个热点的圆内有水（水深 ≥ {d} m）；{b} 个热点的圆与别的热点的圆重叠，共 {k} 对。':
+    '{a} / {n} hotspot circles contain water (depth ≥ {d} m); {b} hotspots have a circle overlapping another, {k} pairs in all.',
+  '评估剔除区内 {n} 个单元不计。': '{n} cells inside the exclusion zones are not counted.',
+  '哪些热点的 200 m 圆有重叠（按重叠面积从大到小）': 'Which hotspot 200 m circles overlap (largest overlap first)',
+  '圆心距 m': 'Centre distance m',
+  '圆重叠面积 m²（占圆）': 'Circle overlap area m² (share of circle)',
+  '重叠区单元面积 m²': 'Cell area in overlap m²',
+  '重叠区峰值积水量 m³': 'Peak volume in overlap m³',
+  '{n} 个单元': '{n} cells',
+  '只看前 {n} 对': 'Show first {n} pairs',
+  '显示全部 {n} 对': 'Show all {n} pairs',
+  '圆重叠面积是两个圆的几何交集（解析式）；重叠区单元面积是落在两圆里的单元面积之和（按形心取，所以与几何面积略有出入）；重叠区峰值积水量 = 重叠区单元按上面公式算出的峰值，每对单独算，不能把各对相加。':
+    'Circle overlap area is the geometric intersection of the two circles (closed form); cell area in overlap is the area of cells in both circles (by centroid, so it differs slightly from the geometric area); peak volume in overlap is the peak of those cells by the formula above, computed per pair, so pairs must not be added.',
+  '圆内峰值积水量 m³（时刻）': 'In-circle peak volume m³ (time)',
+  '圆内最大水深 m': 'In-circle max depth m',
+  '圆重叠': 'Circle overlap',
+  '剔除区 {n} m² 不计': 'Exclusion zone {n} m² not counted',
+  '圈内 {p}% 被别的圈盖住；只属于它自己的峰值 {v} m³': '{p}% of its circle is covered by other circles; peak of its own exclusive part {v} m³',
+  '圆内积水量读取失败：': 'Failed to read in-circle volume: ',
+  '水深阈值要在 0.05–3 m 之间': 'Depth threshold must be 0.05–3 m',
   '已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。':
     '{n} patch(es) not counted: more than half of their area lies in an assessment exclusion zone (marked "Ex" in the list), same rule as the client overlap analysis.',
   '一半以上面积落在评估剔除区内，不计入热点覆盖': 'More than half of the area is in an exclusion zone; not counted for hotspot coverage',

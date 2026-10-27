@@ -6,8 +6,8 @@
    不碰地图：地图那边读这里的 ref 去画。 */
 import { computed, ref, shallowRef, watch } from 'vue'
 
-import { fetchPondingPoints, fetchPondingPointsMeta } from '../api'
-import { coverOfResponse, useHotspotList, usePointList } from './hotspotCoverage'
+import { fetchHotspotBuffer, fetchPondingPoints, fetchPondingPointsMeta } from '../api'
+import { coverOfResponse, useHotspotBuffer, useHotspotList, usePointList } from './hotspotCoverage'
 
 export const DEPTH_CHOICES = [0.1, 0.15, 0.2, 0.3, 0.5]
 const DEFAULT = { depth: 0.15, area: 100, dur: 0.5 }      // 同 RD-A / 客户文档：0.15 m、100 m²、0.5 h
@@ -33,6 +33,8 @@ export function usePondingPoints(runId, stateKey, { onError } = {}) {
     label: `${p.id} · ${p.hmax_m} m · ${Math.round(p.vol_peak_m3).toLocaleString('en-US')} m³`,
   })))
 
+  const buf = useHotspotBuffer([runId, stateKey, meta],
+    d => (enabled.value && meta.value && stateKey.value ? fetchHotspotBuffer(runId.value, stateKey.value, d) : null), { onError })
   const hotspotCoverage = computed(() => (meta.value && ponding.value ? coverOfResponse(ponding.value, meta.value.hotspots) : null))
   const { hotQuery, hotFilter, hotLimit, hotspotList, hotspotCounts } = useHotspotList(hotspotCoverage, stateKey)
 
@@ -106,7 +108,7 @@ export function usePondingPoints(runId, stateKey, { onError } = {}) {
   return {
     meta, ponding, loading, stateKey, pp, pf, formDirty, selPoint, enabled,
     pointFilter, nearOnly, showAll, visiblePoints, shownPoints, selectedPoint, mapPoints,
-    hotspotCoverage, coverageAll, hotQuery, hotFilter, hotLimit, hotspotList, hotspotCounts,
+    buf, hotspotCoverage, coverageAll, hotQuery, hotFilter, hotLimit, hotspotList, hotspotCounts,
     applyThreshold, resetThreshold,
     // 给共用的「积水点」标签（PondingTab.vue，内容与布局同 RD-A）：全市没有成果自带清单和评估剔除区，有网格说明与域外热点
     hasDelivered: false, hasExclusion: false,

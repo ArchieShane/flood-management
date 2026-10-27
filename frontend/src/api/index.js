@@ -78,6 +78,9 @@ export const fetchSimulationHotspots = id => get(`/api/simulations/${id}/hotspot
 export const fetchPondingPointsMeta = id => get(`/api/simulations/${id}/ponding-points/meta`)
 export const fetchPondingPoints = (id, state, depth, minArea, minDur) =>
   get(`/api/simulations/${id}/ponding-points?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
+/** 热点 200 m 圆内的地表峰值积水量 + 圆重叠（hotspot_buffer.py）。 */
+export const fetchHotspotBuffer = (id, state, depth) =>
+  get(`/api/simulations/${id}/hotspot-buffer?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}`)
 export const fetchSimulationResidual = (id, state) => get(`/api/simulations/${id}/layers/residual${stateQ(state)}`)
 /** 拟建调蓄池多边形（与任务无关，后端已转 WGS84，属性原样透传）。 */
 export const fetchProposedPonds = () => get('/api/simulations/layers/proposed-ponds')
@@ -111,5 +114,6 @@ export const fetchRdaFrame = (state, i, base) =>
   get(`/api/rda/states/${state}/frames/${i}` + (base ? `?mode=diff&base=${base}` : ''))
 export const fetchRdaMaxDepthDiff = (state, base) => get(`/api/rda/states/${state}/max-depth-diff?base=${base}`)
 export const fetchRdaHotspotSeries = () => get('/api/rda/hotspots/series')
+export const fetchRdaHotspotBuffer = (state, depth) => get(`/api/rda/states/${state}/hotspot-buffer?depth=${depth}`)
 export const fetchRdaPondingCustom = (state, depth, minArea, minDur) =>
   get(`/api/rda/states/${state}/ponding/custom?depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)

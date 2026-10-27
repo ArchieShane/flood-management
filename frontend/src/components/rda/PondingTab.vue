@@ -36,6 +36,14 @@ const hotRows = computed(() => {
   return (q ? rows.filter(r => `${r.id} ${r.area || ''} ${r.location || ''}`.toLowerCase().includes(q)) : rows).slice(0, hotN.value)
 })
 
+/** 热点 200 m 圆内的地表峰值积水量 + 圆重叠（数据层的 `buf`，见 hotspotCoverage.js / 后端 hotspot_buffer.py） */
+const bufData = computed(() => R.buf?.data.value || null)
+const bufOf = id => R.buf?.byId.value[id] || null
+const pairN = ref(10)
+const pairRows = computed(() => (bufData.value?.pairs || []).slice(0, pairN.value))
+const dupPct = computed(() => (bufData.value?.sum_vol_peak_m3 ? (bufData.value.double_count_m3 / bufData.value.sum_vol_peak_m3) * 100 : null))
+const OVERLAP_CHIPS = 3
+
 function pickPoint(id) {
   R.selPoint.value = id
   const p = (R.ponding.value?.points || []).find(x => x.id === id)
@@ -73,6 +81,15 @@ defineExpose({ pickPoint })
         <div class="kpis">
           <div><b>{{ pct(rda.hotspotCoverage.value.rate) }}</b><span>{{ tr('热点覆盖率（被覆盖热点数 / {n}）', { n: rda.hotspotCoverage.value.total }) }}</span></div>
           <div><b>{{ pct(rda.hotspotCoverage.value.insidePct) }}</b><span>{{ tr('积水量覆盖率（热点 200 m 内的积水量占比）') }}</span></div>
+          <div v-if="bufData && bufData.union_pct != null">
+            <b>{{ pct(bufData.union_pct) }}</b>
+            <span>{{ tr('关注热点圆内积水量占全域（{a} m³ ÷ {b} m³；水深 ≥ {d} m）', {
+              a: int(bufData.union.vol_peak_m3), b: int(bufData.domain.vol_peak_m3), d: Number(bufData.depth_m).toFixed(2) }) }}</span>
+          </div>
+          <div v-if="bufData && bufData.union_all_pct != null">
+            <b>{{ pct(bufData.union_all_pct) }}</b>
+            <span>{{ tr('不设阈值：{a} m³ ÷ 总积水量 {b} m³', { a: int(bufData.union_all.vol_peak_m3), b: int(bufData.domain_all.vol_peak_m3) }) }}</span>
+          </div>
         </div>
         <table v-if="rda.coverageAll.value" class="tbl">
           <thead><tr><th>{{ tr('状态') }}</th><th>{{ tr('覆盖热点') }}</th><th>{{ tr('热点覆盖率') }}</th><th>{{ tr('积水量覆盖率') }}</th></tr></thead>
@@ -111,9 +128,101 @@ defineExpose({ pickPoint })
             <li><b>{{ tr('不是什么') }}</b>：{{ tr('这只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。「覆盖 x / 11」与「判据」页的 A / B / C 达标不是一回事，也不等于积水面积的削减比例。') }}</li>
           </ol>
         </details>
+        <div v-if="rda.buf" class="buf thr">
+          <h5>{{ tr('热点 200 m 圆内的地表峰值积水量') }}</h5>
+          <p class="muted small">{{ tr('客户热点只有一个坐标、没有积水面，所以把以它为圆心、半径 200 m 的圆当作它的积水面，圆内按水深阈值取水。这一栏的阈值只管下面的圆内积水量，不影响上面的积水点和覆盖率。') }}</p>
+          <div class="thr-row">
+            <label>{{ tr('水深 ≥') }} <input v-model.number="rda.buf.bf.value" type="number" min="0.05" max="3" step="0.05" /> m</label>
+            <button class="go" :disabled="!rda.buf.dirty.value" @click="rda.buf.apply()">{{ tr('重算') }}</button>
+            <a v-if="rda.buf.bp.value !== 0.15" href="#" @click.prevent="rda.buf.reset()">{{ tr('回到默认') }}</a>
+            <span v-if="rda.buf.loading.value" class="muted small">{{ tr('计算中…') }}</span>
+          </div>
+          <div class="formula">
+            <b>{{ tr('积水量怎么算') }}</b>
+            <code>V(t) = Σ<sub>i</sub> h<sub>i</sub>(t) × A<sub>i</sub>　　{{ tr('（只加 h ≥ 阈值 的单元 i）') }}</code>
+            <code>{{ tr('热点的地表峰值积水量') }} = max<sub>t</sub> V(t)</code>
+            <ol>
+              <li>{{ tr('圆内单元：单元形心到热点 ≤ 200 m。圆面积 π × 200² ≈ {a} m²，当作这个热点的积水面。', { a: int(bufData?.circle_area_m2 ?? 125664) }) }}</li>
+              <li>{{ tr('h(t) 是单元在第 t 帧的水深（m），A 是单元面积（m²）；水深低于阈值（当前 {d} m）的单元不加，避免薄水膜把量撑大。', { d: Number(rda.buf.bp.value).toFixed(2) }) }}</li>
+              <li>{{ tr('V(t) 逐帧都算，取全部帧里最大的一个，所以每个热点的峰值时刻不同，是量级参考，不是某一时刻的水量。') }}</li>
+              <li><b>{{ tr('重叠') }}</b>：{{ tr('两个热点相距小于 400 m 时圆相交，重叠区里的单元会被两个圆都数到，所以各热点的圆内积水量不能直接相加。总量取「所有圆的并集」：每个单元只算一次，再按同样的公式算。') }}</li>
+              <li v-if="rda.hasExclusion !== false">{{ tr('落在评估剔除区内的单元不算（与积水点覆盖剔除多半在剔除区的片同口径）。') }}</li>
+              <li>{{ tr('这是「圆内」的量，不是积水点的峰值积水量，两者不能比；圆内也可能有与热点无关的水（河道、洼地）。圆按单元形心取，边缘有取舍误差，网格越粗越明显。') }}</li>
+            </ol>
+          </div>
+          <div v-if="bufData" class="kpis three">
+            <div><b>{{ int(bufData.union.vol_peak_m3) }} m³</b><span>{{ tr('并集峰值积水量（每个单元只算一次）') }}<em> {{ at(bufData.union.t_peak_h) }}</em></span></div>
+            <div><b>{{ int(bufData.sum_vol_peak_m3) }} m³</b><span>{{ tr('各热点圆内峰值直接相加') }}</span></div>
+            <div><b>{{ int(bufData.double_count_m3) }} m³</b><span>{{ tr('重复算的量（相加比并集多出的，占相加的 {p}%）', { p: f1(dupPct) }) }}</span></div>
+          </div>
+          <template v-if="bufData && bufData.union_pct != null">
+            <h5>{{ tr('关注热点的积水量占全域积水量的比例') }}</h5>
+            <table class="tbl">
+              <thead>
+                <tr><th>{{ tr('口径') }}</th><th>{{ tr('分子：热点 200 m 圆内（并集）') }}</th><th>{{ tr('分母：全域') }}</th><th>{{ tr('占比') }}</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{{ tr('水深 ≥ {d} m（跟着上面的阈值）', { d: Number(bufData.depth_m).toFixed(2) }) }}<small v-if="rda.hasExclusion !== false" class="tm">{{ tr('分子分母都扣评估剔除区') }}</small></td>
+                  <td>{{ int(bufData.union.vol_peak_m3) }} m³<small class="tm">{{ at(bufData.union.t_peak_h) }} · {{ tr('{n} 个单元', { n: bufData.union.n_cells }) }}</small></td>
+                  <td>{{ int(bufData.domain.vol_peak_m3) }} m³<small class="tm">{{ at(bufData.domain.t_peak_h) }} · {{ tr('{n} 个单元', { n: bufData.domain.n_cells }) }}</small></td>
+                  <td><b>{{ pct(bufData.union_pct) }}</b></td>
+                </tr>
+                <tr>
+                  <td>{{ tr('不设阈值（所有水深都加）') }}<small class="tm">{{ tr('不扣剔除区，分母 = 右侧总览的「总积水量」') }}</small></td>
+                  <td>{{ int(bufData.union_all.vol_peak_m3) }} m³<small class="tm">{{ at(bufData.union_all.t_peak_h) }}</small></td>
+                  <td>{{ int(bufData.domain_all.vol_peak_m3) }} m³<small class="tm">{{ at(bufData.domain_all.t_peak_h) }} · {{ tr('{n} 个单元', { n: bufData.domain_all.n_cells }) }}</small></td>
+                  <td><b>{{ pct(bufData.union_all_pct) }}</b></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="formula">
+              <code>{{ tr('分母') }} = max<sub>t</sub> Σ<sub>{{ tr('全域所有单元') }}</sub> h(t) × A　　{{ tr('（有阈值时只加 h ≥ 阈值 的单元）') }}</code>
+              <code>{{ tr('分子') }} = max<sub>t</sub> Σ<sub>{{ tr('所有热点圆的并集') }}</sub> h(t) × A　　{{ tr('（同一口径，重叠的单元只算一次）') }}</code>
+              <span>{{ tr('也就是说：分母是把整个计算域里每个单元每一帧的「水深 × 面积」加起来，取全部帧里最大的那一帧（出现在上表的时刻）；分子是同样的算法，只是范围缩到热点圆里。两者各取自己的峰值时刻。') }}</span>
+            </div>
+          </template>
+          <p v-if="bufData" class="small">
+            {{ tr('{a} / {n} 个热点的圆内有水（水深 ≥ {d} m）；{b} 个热点的圆与别的热点的圆重叠，共 {k} 对。', {
+              a: bufData.n_with_water, n: bufData.n_hotspots, d: Number(bufData.depth_m).toFixed(2), b: bufData.n_overlap_hotspots, k: bufData.n_pairs }) }}
+            <template v-if="bufData.n_excluded_cells">{{ tr('评估剔除区内 {n} 个单元不计。', { n: bufData.n_excluded_cells }) }}</template>
+          </p>
+          <template v-if="bufData && bufData.pairs.length">
+            <h5>{{ tr('哪些热点的 200 m 圆有重叠（按重叠面积从大到小）') }}</h5>
+            <table class="tbl pairs">
+              <thead>
+                <tr>
+                  <th>{{ tr('热点') }} A</th><th>{{ tr('热点') }} B</th><th>{{ tr('圆心距 m') }}</th><th>{{ tr('圆重叠面积 m²（占圆）') }}</th>
+                  <th>{{ tr('重叠区单元面积 m²') }}</th><th>{{ tr('重叠区峰值积水量 m³') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in pairRows" :key="p.a + p.b">
+                  <td>{{ p.a }}</td><td>{{ p.b }}</td><td>{{ int(p.dist_m) }}</td>
+                  <td>{{ int(p.lens_area_m2) }}<small class="tm">{{ f1(p.lens_pct) }}%</small></td>
+                  <td>{{ int(p.shared_area_m2) }}<small class="tm">{{ tr('{n} 个单元', { n: p.shared_cells }) }}</small></td>
+                  <td>{{ int(p.shared_vol_peak_m3) }}<small v-if="p.shared_t_peak_h != null" class="tm">{{ at(p.shared_t_peak_h) }}</small></td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="bufData.pairs.length > 10" class="small">
+              <a href="#" @click.prevent="pairN = pairN > 10 ? 10 : bufData.pairs.length">
+                {{ pairN > 10 ? tr('只看前 {n} 对', { n: 10 }) : tr('显示全部 {n} 对', { n: bufData.n_pairs }) }}
+              </a>
+            </p>
+            <p class="muted small">{{ tr('圆重叠面积是两个圆的几何交集（解析式）；重叠区单元面积是落在两圆里的单元面积之和（按形心取，所以与几何面积略有出入）；重叠区峰值积水量 = 重叠区单元按上面公式算出的峰值，每对单独算，不能把各对相加。') }}</p>
+          </template>
+        </div>
         <input v-if="manyHot" v-model="hotQ" type="search" class="hot-q" :placeholder="tr('搜编号 / 片区 / 位置')" />
         <table class="tbl">
-          <thead><tr><th>{{ tr('热点') }}</th><th>{{ tr('覆盖') }}</th><th>{{ tr('覆盖它的积水点（距离）') }}</th></tr></thead>
+          <thead>
+            <tr>
+              <th>{{ tr('热点') }}</th><th>{{ tr('覆盖') }}</th><th>{{ tr('覆盖它的积水点（距离）') }}</th>
+              <template v-if="rda.buf">
+                <th>{{ tr('圆内峰值积水量 m³（时刻）') }}</th><th>{{ tr('圆内最大水深 m') }}</th><th>{{ tr('圆重叠') }}</th>
+              </template>
+            </tr>
+          </thead>
           <tbody>
             <tr v-for="h in hotRows" :key="h.id" @click="pickHotspot(h)">
               <td :title="h.location">{{ h.id }}<span v-if="h.area" class="muted small"> · {{ h.area }}</span></td>
@@ -122,6 +231,24 @@ defineExpose({ pickPoint })
                 <a v-for="x in h.points" :key="x.id" href="#" class="chip" @click.prevent="pickPoint(x.id)">{{ x.id.replace('SIM-', '') }} {{ x.dist_m }} m</a>
                 <span v-if="!h.points.length" class="muted">—</span>
               </td>
+              <template v-if="rda.buf">
+                <td>
+                  <template v-if="bufOf(h.id)">
+                    {{ int(bufOf(h.id).vol_peak_m3) }}<small v-if="bufOf(h.id).vol_peak_m3 > 0" class="tm">{{ at(bufOf(h.id).t_peak_h) }}</small>
+                    <small v-if="bufOf(h.id).excluded_area_m2" class="tm">{{ tr('剔除区 {n} m² 不计', { n: int(bufOf(h.id).excluded_area_m2) }) }}</small>
+                  </template>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td>{{ bufOf(h.id) ? f2(bufOf(h.id).hmax_m) : '—' }}</td>
+                <td>
+                  <template v-if="bufOf(h.id)?.overlap_with.length">
+                    <a v-for="o in bufOf(h.id).overlap_with.slice(0, OVERLAP_CHIPS)" :key="o" href="#" class="chip" @click.prevent="manyHot ? (hotQ = o) : null">{{ o }}</a>
+                    <span v-if="bufOf(h.id).overlap_with.length > OVERLAP_CHIPS" class="muted small">+{{ bufOf(h.id).overlap_with.length - OVERLAP_CHIPS }}</span>
+                    <small class="tm">{{ tr('圈内 {p}% 被别的圈盖住；只属于它自己的峰值 {v} m³', { p: f1(bufOf(h.id).shared_pct), v: int(bufOf(h.id).vol_exclusive_peak_m3) }) }}</small>
+                  </template>
+                  <span v-else class="muted">—</span>
+                </td>
+              </template>
             </tr>
           </tbody>
         </table>

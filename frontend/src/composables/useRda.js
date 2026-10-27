@@ -6,9 +6,10 @@ import { computed, ref, shallowRef, watch } from 'vue'
 
 import {
   fetchRdaCompliance, fetchRdaCriteria, fetchRdaFacilities, fetchRdaL3, fetchRdaOverview,
-  fetchRdaHotspots, fetchRdaPonding, fetchRdaPondingCustom, fetchRdaSuggested,
+  fetchRdaHotspotBuffer, fetchRdaHotspots, fetchRdaPonding, fetchRdaPondingCustom, fetchRdaSuggested,
 } from '../api'
 import { tr } from '../i18n/rda'
+import { useHotspotBuffer } from './hotspotCoverage'
 
 /** 仿真任务里的态 key（L2+planned / L2+suggested）→ RDA 口径 */
 export const RDA_KEY = { L1: 'L1', L2: 'L2', 'L2+planned': 'L2P', 'L2+suggested': 'OPTCS2' }
@@ -210,6 +211,10 @@ export function useRda(stateKey, { onError } = {}) {
     return Promise.all([overviewReq, suggestedReq, hotspotReq])
   }
 
+  /** 热点 200 m 圆内的地表峰值积水量 + 圆重叠；阈值单独一栏，不影响上面的积水点 */
+  const buf = useHotspotBuffer([stateKey], d => (stateKey.value ? fetchRdaHotspotBuffer(stateKey.value, d) : null),
+    { onError: m => onError?.(tr('圆内积水量读取失败：') + m) })
+
   watch(stateKey, loadState)
   watch(pp, loadPonding)
   watch([() => !!stateKey.value, pp, hotspotMeta], loadCoverageAll, { immediate: true })   // 换阈值 / 热点清单到齐后重算四态覆盖率
@@ -217,7 +222,7 @@ export function useRda(stateKey, { onError } = {}) {
   return {
     stateKey, overview, suggested, ponding, l3, crit, fac, compliance, loading, error,
     pp, pf, isDelivered, formDirty, selPoint, selMeasure, selFac, pointFilter, nearOnly, showAllChecks, isSugg, kindName,
-    visiblePoints, hotspotCoverage, coverageAll, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
+    buf, visiblePoints, hotspotCoverage, coverageAll, selectedPoint, measureById, selectedMeasure, measureSim, shownChecks, measureTypes, costTotal,
     loadState, loadPonding, applyThreshold, presetDepth, pickMeasure, ensureShared,
   }
 }
