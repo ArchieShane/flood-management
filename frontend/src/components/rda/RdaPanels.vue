@@ -233,7 +233,7 @@ const facCounts = computed(() => {
         <h4>{{ tr('设计参数') }}</h4>
         <dl class="kv">
           <dt>{{ tr('截流井') }}</dt><dd>{{ rda.selectedMeasure.value.intercept_wells == null ? '—' : tr(String(rda.selectedMeasure.value.intercept_wells)) }}</dd>
-          <dt>{{ tr('截流井溢流量') }}</dt><dd>{{ int(rda.selectedMeasure.value.overflow_m3) }} m³（{{ tr('96 mm 两场取大') }}）</dd>
+          <dt>{{ tr('截流井溢流量') }}</dt><dd>{{ int(rda.selectedMeasure.value.overflow_m3) }} m³</dd>
           <template v-if="rda.selectedMeasure.value.tank_m3">
             <dt>{{ tr('池容') }}</dt><dd>{{ int(rda.selectedMeasure.value.tank_m3) }} m³</dd>
             <dt>{{ tr('有效水深 / 池底') }}</dt><dd>{{ f1(rda.selectedMeasure.value.effective_depth_m) }} m / {{ f2(rda.selectedMeasure.value.invert_m) }} m</dd>
@@ -253,6 +253,7 @@ const facCounts = computed(() => {
           </template>
           <template v-if="rda.selectedMeasure.value.outfall"><dt>{{ tr('排口') }}</dt><dd>{{ rda.selectedMeasure.value.outfall }}</dd></template>
           <dt>{{ tr('造价依据') }}</dt><dd>{{ tr(rda.selectedMeasure.value.cost_basis) }}</dd>
+          <template v-if="rda.selectedMeasure.value.vs_current"><dt>{{ tr('与当前方案相比') }}</dt><dd>{{ tr(rda.selectedMeasure.value.vs_current) }}</dd></template>
         </dl>
         <h4>{{ tr('本场模拟里的实际表现') }}</h4>
         <ul class="plain">
@@ -270,25 +271,27 @@ const facCounts = computed(() => {
         <template v-if="rda.selectedMeasure.value.missing_data">
           <h4>{{ tr('缺数据判不了') }}</h4><p class="muted">{{ trj(rda.selectedMeasure.value.missing_data) }}</p>
         </template>
-        <h4>
-          {{ tr('WA-726 与空间约束检查') }}
-          <small v-if="rda.compliance.value" class="muted">
-            {{ tr('共 {n} 项：', { n: rda.compliance.value.checks.length }) }}
-            <template v-for="(n, k) in rda.compliance.value.tally" :key="k">{{ tallyWord(k) }} {{ n }}　</template>
-          </small>
-        </h4>
-        <label class="small"><input v-model="rda.showAllChecks.value" type="checkbox" /> {{ tr('显示全部（默认只列需复核 / 缺数据）') }}</label>
-        <ul class="plain checks">
-          <li v-for="c in rda.shownChecks.value" :key="c.check" :class="c.result">
-            <b>{{ tallyWord(c.result) }}</b> {{ tr(c.name) }}
-            <small v-if="c.detail" class="muted"> — {{ tr(c.detail) }}</small>
-            <small v-if="c.refs.length" class="muted"> [{{ c.refs.join(', ') }}]</small>
-          </li>
-        </ul>
+        <template v-if="rda.compliance.value">
+          <h4>
+            {{ tr('WA-726 与空间约束检查') }}
+            <small class="muted">
+              {{ tr('共 {n} 项：', { n: rda.compliance.value.checks.length }) }}
+              <template v-for="(n, k) in rda.compliance.value.tally" :key="k">{{ tallyWord(k) }} {{ n }}　</template>
+            </small>
+          </h4>
+          <label class="small"><input v-model="rda.showAllChecks.value" type="checkbox" /> {{ tr('显示全部（默认只列需复核 / 缺数据）') }}</label>
+          <ul class="plain checks">
+            <li v-for="c in rda.shownChecks.value" :key="c.check" :class="c.result">
+              <b>{{ tallyWord(c.result) }}</b> {{ tr(c.name) }}
+              <small v-if="c.detail" class="muted"> — {{ tr(c.detail) }}</small>
+              <small v-if="c.refs.length" class="muted"> [{{ c.refs.join(', ') }}]</small>
+            </li>
+          </ul>
+        </template>
       </template>
 
       <template v-else>
-        <h3>{{ tr('L2+suggested 我们的方案') }} · {{ tr('{n} 项措施', { n: rda.suggested.value.measures.length }) }}</h3>
+        <h3>{{ tr('L2+suggested 推荐方案') }} · {{ tr('{n} 项措施', { n: rda.suggested.value.measures.length }) }}</h3>
         <p class="muted small">{{ tr(rda.suggested.value.note) }}</p>
         <div v-if="rda.costTotal.value" class="kpis">
           <div><b>{{ rda.costTotal.value['数量'] }}</b><span>{{ tr('新增措施（项）') }}</span></div>
@@ -306,7 +309,30 @@ const facCounts = computed(() => {
             </tr>
           </tbody>
         </table>
-        <h4>{{ tr('全寿命成本（NPV）') }}</h4>
+        <template v-if="rda.suggested.value.compare?.length">
+          <h4>{{ tr('方案对比（客户热点四项全过 / 全域 ≥0.30 m 积水面积）') }}</h4>
+          <table class="tbl small-t">
+            <thead><tr><th>{{ tr('降雨') }}</th><th>{{ tr('方案') }}</th><th>{{ tr('四项全过 / 11') }}</th><th>≥0.30 m ha</th><th>{{ tr('未过的热点') }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in rda.suggested.value.compare" :key="i">
+                <td>{{ tr(r['降雨']) }}</td><td>{{ tr(r['方案']) }}</td><td>{{ r['客户热点四项全过（/11）'] }}</td><td>{{ f2(r['全域 ≥0.30 m 积水面积 ha']) }}</td>
+                <td class="small">{{ r['未过的热点'] || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+        <template v-if="rda.suggested.value.diff?.length">
+          <h4>{{ tr('与当前方案（按 96 mm 优化）的差异') }}</h4>
+          <table class="tbl small-t">
+            <thead><tr><th>{{ tr('变化') }}</th><th>{{ tr('编号') }}</th><th>{{ tr('类型') }}</th><th>{{ tr('热点') }}</th><th>{{ tr('造价 USD') }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in rda.suggested.value.diff" :key="i">
+                <td>{{ tr(r['变化']) }}</td><td>{{ r['编号'] }}</td><td>{{ tr(r['类型']) }}</td><td>{{ r['服务热点'] }}</td><td>{{ r['造价 USD'] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+        <h4 v-if="rda.suggested.value.npv">{{ tr('全寿命成本（NPV）') }}</h4>
         <table v-if="rda.suggested.value.npv" class="tbl small-t">
           <thead><tr><th>{{ tr('方案') }}</th><th>{{ tr('建设') }}</th><th>{{ tr('运维/年') }}</th><th>NPV 3%</th><th>5%</th><th>8%</th></tr></thead>
           <tbody>
@@ -316,7 +342,7 @@ const facCounts = computed(() => {
             </tr>
           </tbody>
         </table>
-        <p class="muted small">{{ tr('单位：百万美元。造价分项：') }}
+        <p v-if="rda.suggested.value.npv" class="muted small">{{ tr('单位：百万美元。造价分项：') }}
           <span v-for="b in rda.suggested.value.npv?.breakdown" :key="b.item" class="chip">{{ tr(b.item) }} {{ b.m_usd }}（{{ b.pct }}%）</span>
         </p>
         <h4>{{ tr('逐项措施（点一行定位并看设计参数 / 怎么排水 / 合规）') }}</h4>

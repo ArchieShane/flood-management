@@ -30,13 +30,17 @@ function delta(row, scope, key, d = 2) {
   return x === 0 ? '' : x > 0 ? `+${f(x)}` : `−${f(-x)}`
 }
 const unconverged = computed(() => props.data.points.find(p => p.catchment_ha?.unconverged))
+/** 交付有热点汇水区的统计就按汇水区列；没有（RD-A、全市）时三列改按热点 200 m 圆的统计列，表头和说明同步换，不留空列 */
+const hasCatch = computed(() => props.data.points.some(p => Object.values(p.stats || {}).some(s => s?.catchment)))
+const scope = computed(() => (hasCatch.value ? 'catchment' : 'near_200m'))
+const sc = row => cur(row)[scope.value]
 </script>
 
 <template>
   <div class="hp">
     <div class="hp-head">
       <div class="bh">{{ t('sim.hotspots.title') }}</div>
-      <span class="hp-sum">{{ t('sim.hotspots.lead', { n: data.points.length, state: stateCode(state) }) }}</span>
+      <span class="hp-sum">{{ t(hasCatch ? 'sim.hotspots.lead' : 'sim.hotspots.leadNear', { n: data.points.length, state: stateCode(state) }) }}</span>
     </div>
     <div class="hp-scroll">
       <table class="hp-tab">
@@ -44,8 +48,8 @@ const unconverged = computed(() => props.data.points.find(p => p.catchment_ha?.u
           <tr>
             <th>{{ t('sim.hotspots.id') }}</th>
             <th class="r">{{ t('sim.hotspots.near') }} (m)</th>
-            <th class="r">{{ t('sim.hotspots.a30') }} (ha)</th>
-            <th class="r">{{ t('sim.hotspots.vol') }} (m³)</th>
+            <th class="r">{{ t(hasCatch ? 'sim.hotspots.a30' : 'sim.hotspots.a30Near') }} (ha)</th>
+            <th class="r">{{ t(hasCatch ? 'sim.hotspots.vol' : 'sim.hotspots.volNear') }} (m³)</th>
             <th class="r">{{ t('sim.hotspots.at') }} (h)</th>
           </tr>
         </thead>
@@ -53,22 +57,22 @@ const unconverged = computed(() => props.data.points.find(p => p.catchment_ha?.u
           <tr v-for="p in data.points" :key="p.id" :class="{ on: active === p.id }" @click="emit('focus', p.id)">
             <td><b>{{ p.id }}</b><span class="dim"> {{ p.district }}</span></td>
             <td class="r">{{ num(cur(p.stats).near_200m?.max_depth_m) }}<i>{{ delta(p.stats, 'near_200m', 'max_depth_m') }}</i></td>
-            <td class="r">{{ num(cur(p.stats).catchment?.area_ge_0_30_ha) }}<i>{{ delta(p.stats, 'catchment', 'area_ge_0_30_ha') }}</i></td>
-            <td class="r">{{ cur(p.stats).catchment?.max_volume_m3 == null ? '—' : fmtInt(cur(p.stats).catchment.max_volume_m3) }}<i>{{ delta(p.stats, 'catchment', 'max_volume_m3', 0) }}</i></td>
-            <td class="r">{{ num(cur(p.stats).catchment?.max_volume_h) }}</td>
+            <td class="r">{{ num(sc(p.stats)?.area_ge_0_30_ha) }}<i>{{ delta(p.stats, scope, 'area_ge_0_30_ha') }}</i></td>
+            <td class="r">{{ sc(p.stats)?.max_volume_m3 == null ? '—' : fmtInt(sc(p.stats).max_volume_m3) }}<i>{{ delta(p.stats, scope, 'max_volume_m3', 0) }}</i></td>
+            <td class="r">{{ num(sc(p.stats)?.max_volume_h) }}</td>
           </tr>
           <tr class="tot">
-            <td><b>{{ t('sim.hotspots.total') }}</b></td>
+            <td><b>{{ t('sim.hotspots.total', { n: data.points.length }) }}</b></td>
             <td class="r">{{ num(cur(data.total).near_200m?.max_depth_m) }}<i>{{ delta(data.total, 'near_200m', 'max_depth_m') }}</i></td>
-            <td class="r">{{ num(cur(data.total).catchment?.area_ge_0_30_ha) }}<i>{{ delta(data.total, 'catchment', 'area_ge_0_30_ha') }}</i></td>
-            <td class="r">{{ cur(data.total).catchment?.max_volume_m3 == null ? '—' : fmtInt(cur(data.total).catchment.max_volume_m3) }}<i>{{ delta(data.total, 'catchment', 'max_volume_m3', 0) }}</i></td>
-            <td class="r">{{ num(cur(data.total).catchment?.max_volume_h) }}</td>
+            <td class="r">{{ num(sc(data.total)?.area_ge_0_30_ha) }}<i>{{ delta(data.total, scope, 'area_ge_0_30_ha') }}</i></td>
+            <td class="r">{{ sc(data.total)?.max_volume_m3 == null ? '—' : fmtInt(sc(data.total).max_volume_m3) }}<i>{{ delta(data.total, scope, 'max_volume_m3', 0) }}</i></td>
+            <td class="r">{{ num(sc(data.total)?.max_volume_h) }}</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p v-if="!isBase" class="hp-note">{{ t('sim.hotspots.vsBase', { s: stateCode(base) }) }}；{{ t('sim.hotspots.totalNote') }}</p>
-    <p v-else class="hp-note">{{ t('sim.hotspots.totalNote') }}</p>
+    <p v-if="!isBase" class="hp-note">{{ t('sim.hotspots.vsBase', { s: stateCode(base) }) }}；{{ t(hasCatch ? 'sim.hotspots.totalNote' : 'sim.hotspots.totalNoteNear') }}</p>
+    <p v-else class="hp-note">{{ t(hasCatch ? 'sim.hotspots.totalNote' : 'sim.hotspots.totalNoteNear') }}</p>
     <p v-if="unconverged" class="hp-warn">{{ t('sim.hotspots.unconverged', { ha: fmtInt(unconverged.catchment_ha.surface) }) }}</p>
   </div>
 </template>

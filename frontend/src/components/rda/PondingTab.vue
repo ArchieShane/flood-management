@@ -1,6 +1,6 @@
 <script setup>
 /* 「积水点」标签：RD-A（`RdaPanels.vue`）与全市一二维任务（`PondingPointsPanel.vue`）共用这一份，内容和布局与 RD-A 原来的完全一致：
-   积水点阈值 → 覆盖的客户热点（热点覆盖率 / 积水量覆盖率 / 各状态并排 / 口径 / 热点表）→ 积水点列表与详情卡片。
+   积水点阈值 → 覆盖的客户热点（热点覆盖率 / 各状态并排 / 口径 / 圆内积水量与占比 / 热点表）→ 积水点列表与详情卡片。
    两边的数据层名字一致（`useRda()` / `usePondingPoints()`），传进来的 `rda`；全市多出的只有：网格说明、不在计算域内的热点、
    热点和积水点很多时的搜索 / 分页。点行时往外抛 `locate`，由外面的地图去飞；本组件不碰地图。 */
 import { computed, ref, unref } from 'vue'
@@ -80,7 +80,6 @@ defineExpose({ pickPoint })
         <h4>{{ tr('覆盖的客户热点') }} {{ rda.hotspotCoverage.value.covered }} / {{ rda.hotspotCoverage.value.total }}</h4>
         <div class="kpis">
           <div><b>{{ pct(rda.hotspotCoverage.value.rate) }}</b><span>{{ tr('热点覆盖率（被覆盖热点数 / {n}）', { n: rda.hotspotCoverage.value.total }) }}</span></div>
-          <div><b>{{ pct(rda.hotspotCoverage.value.insidePct) }}</b><span>{{ tr('积水量覆盖率（热点 200 m 内的积水量占比）') }}</span></div>
           <div v-if="bufData && bufData.union_pct != null">
             <b>{{ pct(bufData.union_pct) }}</b>
             <span>{{ tr('关注热点圆内积水量占全域（{a} m³ ÷ {b} m³；水深 ≥ {d} m）', {
@@ -92,22 +91,16 @@ defineExpose({ pickPoint })
           </div>
         </div>
         <table v-if="rda.coverageAll.value" class="tbl">
-          <thead><tr><th>{{ tr('状态') }}</th><th>{{ tr('覆盖热点') }}</th><th>{{ tr('热点覆盖率') }}</th><th>{{ tr('积水量覆盖率') }}</th></tr></thead>
+          <thead><tr><th>{{ tr('状态') }}</th><th>{{ tr('覆盖热点') }}</th><th>{{ tr('热点覆盖率') }}</th></tr></thead>
           <tbody>
             <tr v-for="c in rda.coverageAll.value" :key="c.key" :class="{ cur: c.key === rda.stateKey.value }">
               <td>{{ c.key }}</td>
               <td>{{ c.covered == null ? '—' : `${c.covered} / ${c.total}` }}</td>
               <td>{{ pct(c.rate) }}</td>
-              <td>{{ pct(c.insidePct) }}</td>
             </tr>
           </tbody>
         </table>
         <p class="muted small">{{ tr('按当前状态、当前阈值算出的积水点，200 m 内有积水点即算覆盖该热点；未覆盖 = 这一态下热点周边已没有达标的积水点。点编号可定位。') }}</p>
-        <p v-if="rda.hotspotCoverage.value.insidePct != null" class="small">
-          {{ tr('热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。', {
-            a: rda.hotspotCoverage.value.nInside, n: rda.hotspotCoverage.value.nPoints, v: int(rda.hotspotCoverage.value.volInside),
-            p: f1(rda.hotspotCoverage.value.insidePct), q: f1(100 - rda.hotspotCoverage.value.insidePct) }) }}
-        </p>
         <p v-if="rda.hotspotCoverage.value.nExcluded" class="muted small">
           {{ tr('已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。', { n: rda.hotspotCoverage.value.nExcluded }) }}
         </p>
@@ -117,14 +110,13 @@ defineExpose({ pickPoint })
         <details class="logic">
           <summary>{{ tr('覆盖是怎么算的（口径）') }}</summary>
           <ol>
-            <li v-if="rda.hasDelivered !== false"><b>{{ tr('覆盖率') }}</b>：{{ tr('热点覆盖率 = 被覆盖的热点数 ÷ 热点总数（11）；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量，两个都不含被剔除的片。上面的小表是四个状态在同一套阈值下的并排对比，当前状态高亮。') }}</li>
-            <li v-else><b>{{ tr('覆盖率') }}</b>：{{ tr('热点覆盖率 = 被覆盖的热点数 ÷ 热点总数；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量。上面的小表是各状态在同一套阈值下的并排对比，当前状态高亮。') }}</li>
+            <li v-if="rda.hasDelivered !== false"><b>{{ tr('覆盖率') }}</b>：{{ tr('热点覆盖率 = 被覆盖的热点数 ÷ 热点总数（11），不含被剔除的片。上面的小表是四个状态在同一套阈值下的并排对比，当前状态高亮。') }}</li>
+            <li v-else><b>{{ tr('覆盖率') }}</b>：{{ tr('热点覆盖率 = 被覆盖的热点数 ÷ 热点总数。上面的小表是各状态在同一套阈值下的并排对比，当前状态高亮。') }}</li>
             <li><b>{{ tr('积水点') }}</b>：{{ tr('当前状态的二维结果里，全程最大水深 ≥ 阈值的单元按三角网共边连成片，去掉面积不足连片下限、持续不足时长下限的片；阈值就是上面「积水点阈值」那一栏（成果自带 0.15 / 0.30 m、100 m²、0.5 h）。') }}</li>
             <li v-if="rda.hasDelivered !== false"><b>{{ tr('覆盖') }}</b>：{{ tr('客户热点（RD-A 交付的 11 个，只有坐标）到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离取热点到片内最近单元形心。同一热点可被几个点覆盖，表里按距离由近到远列出。') }}</li>
             <li v-else><b>{{ tr('覆盖') }}</b>：{{ tr('客户热点（交付的热点，只有坐标）到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离按客户文档量：热点到最近积水片边界的平面距离，热点落在积水片里为 0 m。同一热点可被几个点覆盖，表里按距离由近到远列出。') }}</li>
             <li><b>{{ tr('未覆盖') }}</b>：{{ tr('这一状态下热点 200 m 内已经没有达标的积水点，意思是该处不再积水或积得不够深、不够久，不是「没有算到」。') }}</li>
-            <li v-if="rda.hasDelivered !== false"><b>{{ tr('不计入的片') }}</b>：{{ tr('一半以上面积落在评估剔除区内的积水片不计入覆盖，也不进下面的占比（与客户重合分析文档同口径）。剔除区有两处：ADM-80 岸边约 9.7 ha 的 DTM 高程恰为 0.00 m（判为缺测填零），ADM-161 东侧私人地块的深坑。') }}</li>
-            <li><b>{{ tr('占比') }}</b>：{{ tr('「热点 200 m 内」的积水量 = 这些积水点的峰值积水量之和，除以全部（不含被剔除的）积水点的峰值积水量之和；每个点只算一次。各点峰值时刻不同，所以这是量级参考，不是某一时刻的水量。按整片算：只要一片有一部分在热点 200 m 内，整片的水量都计入分子，不是只算 200 m 圈内的那部分水，所以这个比例偏乐观，圈内的实际水量比它小。') }}</li>
+            <li v-if="rda.hasDelivered !== false"><b>{{ tr('不计入的片') }}</b>：{{ tr('一半以上面积落在评估剔除区内的积水片不计入覆盖（与客户重合分析文档同口径）。剔除区有两处：ADM-80 岸边约 9.7 ha 的 DTM 高程恰为 0.00 m（判为缺测填零），ADM-161 东侧私人地块的深坑。') }}</li>
             <li><b>{{ tr('不是什么') }}</b>：{{ tr('这只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。「覆盖 x / 11」与「判据」页的 A / B / C 达标不是一回事，也不等于积水面积的削减比例。') }}</li>
           </ol>
         </details>
