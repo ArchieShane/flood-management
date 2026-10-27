@@ -27,7 +27,8 @@ STATES: dict[str, dict] = {
     "L1": {"folder": "L1_现状", "tag": "L1", "label": "L1 现状", "line": "第一道防线 · 现状永久管网"},
     "L2": {"folder": "L2_雨前预置泵", "tag": "L2", "label": "L2 雨前预置泵", "line": "第二道防线 · 雨前预置移动泵"},
     "L2P": {"folder": "L2+planned_客户计划", "tag": "L2P", "label": "L2+planned 客户计划", "line": "第二道防线 · 客户已有计划（视同建成）"},
-    "OPTCS2": {"folder": "L2+suggested_我们的方案", "tag": "OPTCS2", "label": "L2+suggested 我们的方案", "line": "第二道防线 · 我们的建议方案"},
+    # key 是本系统的协议值（接口 / 前端沿用 OPTCS2）；目录与文件名里的记号随交付走：2026-10-27 的交付把 OPTCS2 换成了 OPTA61PS
+    "OPTCS2": {"folder": "L2+suggested_推荐方案", "tag": "OPTA61PS", "label": "L2+suggested 推荐方案", "line": "第二道防线 · 推荐方案（当前方案瘦身版）"},
 }
 DEPTHS = ("0.15", "0.30")
 
@@ -59,7 +60,8 @@ def root() -> Path:
 
 def available() -> bool:
     try:
-        return (root() / "README.md").is_file()
+        # 交付里一定有 `积水点说明.md`（2026-10-27 的交付没带 README.md）；页面不读它们的内容，只认成果在不在
+        return any((root() / n).is_file() for n in ("README.md", "积水点说明.md"))
     except RdaError:
         return False
 
@@ -340,7 +342,7 @@ def _ledger_files() -> Path:
 
 @lru_cache(maxsize=1)
 def ledger() -> list[dict]:
-    """L2+suggested 的 60 项措施台账（设计参数 + 造价 + 可建性 + 审批）。"""
+    """L2+suggested 的措施台账（设计参数 + 造价 + 可建性 + 审批）；项数以交付为准（2026-10-27 的推荐方案是 53 项）。"""
     p = _one(_ledger_files(), "L2+suggested_设施台账*.csv")
     return _csv(p) if p else []
 
@@ -376,6 +378,23 @@ def npv() -> dict | None:
 def intakes() -> list[dict]:
     p = _one(_ledger_files(), "L2+suggested_地面取水口.csv")
     return _csv(p) if p else []
+
+
+def scheme_compare() -> list[dict]:
+    """推荐方案与客户计划 / 专门方案 / 当前方案的并排对比（`方案对比.csv`：每场雨、每个方案的客户热点四项全过数与 ≥0.30 m 面积）。"""
+    p = _one(_ledger_files(), "L2+suggested_方案对比.csv")
+    return _csv(p) if p else []
+
+
+def scheme_diff() -> list[dict]:
+    """推荐方案相对当前方案删去 / 换掉了哪些措施（`与当前方案的差异.csv`）。"""
+    p = _one(_ledger_files(), "L2+suggested_与当前方案的差异.csv")
+    return _csv(p) if p else []
+
+
+def _col(r: dict, prefix: str):
+    """台账列名按前缀取（交付改过表头：『截流井溢流量 m³（96 mm 两场取大）』→『截流井溢流量 m³』），按最新的来、旧版也认。"""
+    return next((v for k, v in r.items() if k.startswith(prefix)), None)
 
 
 def surface_ps_geojson() -> dict:
@@ -419,7 +438,7 @@ def suggested() -> dict:
         items.append({
             "id": r["编号"], "type": r["类型"], "hotspot": r["服务热点"],
             "lon": r["经度"], "lat": r["纬度"],
-            "intercept_wells": r["截流井"], "overflow_m3": r["截流井溢流量 m³（96 mm 两场取大）"],
+            "intercept_wells": r["截流井"], "overflow_m3": _col(r, "截流井溢流量"),
             "tank_m3": r["池容 m³"], "effective_depth_m": r["有效水深 m"], "invert_m": r["池底高程 m"],
             "excavation_m": r["开挖深度 m"],
             "pumps": r["泵台数"], "design_q_m3s": r["设计流量 m³/s"], "pump_q_m3s": r["单泵流量 m³/s"],
@@ -430,12 +449,15 @@ def suggested() -> dict:
             "cost_usd": r["占位造价 USD"], "cost_basis": r["造价依据"],
             "buildability": r["可建性"], "approvals": r["需审批 / 许可"], "missing_data": r["缺数据判不了"],
             "check_count": r["合规检查项数"], "check_tally": tally,
+            "vs_current": r.get("与当前方案相比"),        # 相对当前方案（96 mm 优化版）：保留 / 新增 / 换成更省的…
         })
     return {
         "measures": items,
         "by_type": cost_summary(),
         "npv": npv(),
         "intakes": intakes(),
+        "compare": scheme_compare(),
+        "diff": scheme_diff(),
         "surface_ps": surface_ps_geojson(),
         "note": "造价是占位单价，用于方案比较，不是工程概算；位置已按 WA-726 规则、用地和地下管线约束筛过，落地前仍需现场核实和主管部门许可。",
     }

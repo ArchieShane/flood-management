@@ -480,7 +480,7 @@ LABEL_EN: tuple[tuple[str, str], ...] = (
     ("汇水区（模型版：", "catchment (model version: "), ("Parsons 方案", "Parsons scheme"), ("规划方案", "Planned scheme"),
     ("已建成调蓄", "Built storage"), ("既有管网", "Existing network"), ("移动泵", "Mobile pumps"),
     ("加OP-02移动泵", "Plus OP-02 mobile pumps"), ("现状管网", "Existing network"), ("现状泵站", "existing pump stations"),
-    ("雨前预置泵", "Pre-placed pumps"), ("客户计划", "Client plan"), ("我们的方案", "Our scheme"),
+    ("雨前预置泵", "Pre-placed pumps"), ("客户计划", "Client plan"), ("我们的方案", "Our scheme"), ("推荐方案", "Recommended scheme"),
     ("现状", "Existing"), ("计算域", "computational domain"), ("）", ")"),
 )
 

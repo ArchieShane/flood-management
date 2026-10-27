@@ -19,16 +19,21 @@ def test_overview_matches_readme():
     assert [by[k]["ponding_count"]["0.15"] for k in ("L1", "L2", "L2P", "OPTCS2")] == [67, 67, 69, 30]
     assert [by[k]["ponding_count"]["0.30"] for k in ("L1", "L2", "L2P", "OPTCS2")] == [22, 22, 22, 6]
     assert by["OPTCS2"]["hotspots_total"] == 11
-    assert ov["suggested_measures"] == 60
+    assert ov["suggested_measures"] == 53         # 2026-10-27 的推荐方案：60 项瘦身成 53 项
 
 
-def test_ponding_joins_l3_only_for_015():
+def test_suggested_state_follows_2026_10_27_delivery():
+    """推荐方案（态 key 仍是 OPTCS2，文件记号换成 OPTA61PS）：积水点 30 / 6 个；这份交付没有 L3 承接与评估剔除区标记。"""
     p = client.get("/api/rda/states/OPTCS2/ponding?depth=0.15").json()
     assert p["count"] == 30 and p["not_receded"] == 6
-    first = p["points"][0]
-    assert first["id"] == "SIM-OPTCS2-001" and first["l3"]["level"] == "高"
-    assert client.get("/api/rda/states/OPTCS2/ponding?depth=0.30").json()["points"][0]["l3"] is None
+    assert p["points"][0]["id"] == "SIM-OPTA61PS-001" and p["points"][0]["l3"] is None
+    assert round(p["peak_vol_sum_m3"]) == 15432
+    q = client.get("/api/rda/states/OPTCS2/ponding?depth=0.30").json()
+    assert q["count"] == 6 and q["points"][0]["l3"] is None and round(q["peak_vol_sum_m3"]) == 2445
     assert client.get("/api/rda/states/OPTCS2/ponding?depth=0.2").status_code == 404
+    assert client.get("/api/rda/states/OPTCS2/l3").status_code == 404
+    # 这份交付没有推荐方案的 L3 / 评估剔除区标记：没有片被标成剔除（与旧交付里 30 / 6 片全是「否」一致）
+    assert p["excluded"] == 0 and p["mostly_excluded"] == 0
 
 
 def test_ponding_has_peak_times_for_every_point():
@@ -41,7 +46,7 @@ def test_ponding_has_peak_times_for_every_point():
                 assert 0 < r["area_peak_m2"] <= r["area_m2"] + 1          # 同一时刻的面积不会超过「全程最大水深 ≥ 阈值」的并集
                 assert 0 <= r["t_area_peak_h"] <= r["t_end_h"] and 0 <= r["t_hmax_h"] <= r["t_end_h"]
     first = client.get("/api/rda/states/OPTCS2/ponding?depth=0.15").json()["points"][0]
-    assert first["vol_peak_m3"] == 5752 and first["t_peak_h"] == 1.17 and first["hmax_m"] == 0.4   # 成果原值不动
+    assert first["vol_peak_m3"] == 5769 and first["t_peak_h"] == 1.08 and first["hmax_m"] == 0.4   # 成果原值不动
 
 
 def test_mostly_excluded_matches_client_overlap_doc():
@@ -58,18 +63,23 @@ def test_mostly_excluded_matches_client_overlap_doc():
     assert client.get("/api/rda/states/OPTCS2/ponding?depth=0.15").json()["mostly_excluded"] == 0
 
 
-def test_suggested_ledger_and_compliance():
+def test_suggested_ledger_follows_latest_headers():
+    """2026-10-27 的推荐方案：53 项、1.1871 亿美元；台账换了表头（截流井溢流量不带口径后缀、多了『与当前方案相比』），
+    没有合规检查 / NPV / 地面泵站图层，页面按这份交付来：这几块为空，不回退旧文件。"""
     s = client.get("/api/rda/suggested").json()
-    assert len(s["measures"]) == 60
-    assert s["by_type"]["total"]["数量"] == 60
-    assert round(sum(m["cost_usd"] for m in s["measures"]) / 1e6, 2) == 133.74
-    c = client.get(f"/api/rda/suggested/{s['measures'][0]['id']}/compliance").json()
-    assert c["checks"] and sum(c["tally"].values()) == len(c["checks"])
+    assert len(s["measures"]) == 53
+    assert s["by_type"]["total"]["数量"] == 53
+    assert round(sum(m["cost_usd"] for m in s["measures"]) / 1e6, 2) == 118.71
+    assert all("overflow_m3" in m and "vs_current" in m for m in s["measures"])
+    assert any(m["overflow_m3"] for m in s["measures"]) and any(m["vs_current"] for m in s["measures"])
+    assert s["npv"] is None and not s["surface_ps"]["features"]
+    assert s["compare"] and s["diff"] and len(s["intakes"]) == 17
+    assert client.get(f"/api/rda/suggested/{s['measures'][0]['id']}/compliance").status_code == 404
 
 
 def test_max_depth_lonlat_in_abu_dhabi():
     d = client.get("/api/rda/states/OPTCS2/max-depth").json()
-    assert d["count"] > 0 and abs(d["max_m"] - 2.11) < 0.01
+    assert d["count"] > 0 and abs(d["max_m"] - 2.12) < 0.01
     assert 54.2 < min(d["lon"]) and max(d["lon"]) < 54.5 and 24.3 < min(d["lat"]) and max(d["lat"]) < 24.6
 
 
