@@ -744,3 +744,36 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
         "not_receded": sum(not p["receded"] for p in points), "excluded": 0, "mostly_excluded": 0, "points": points,
         "note": "按所给阈值从二维结果现算（三角网共边连片）；不扣地表塘占地，没有 L3 承接与评估剔除标记。",
     }
+
+
+@lru_cache(maxsize=1)
+def _exclusion_rings() -> list[np.ndarray]:
+    """评估剔除区的多边形环（UTM 40N 坐标）。"""
+    rings = []
+    for f in exclusion_zones()["features"]:
+        g = f["geometry"]
+        polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
+        for poly in polys:
+            ll = np.array(poly[0], dtype=np.float64)
+            x, y = _lonlat_to_utm40(ll[:, 0], ll[:, 1])
+            rings.append(np.stack([x, y], 1))
+    return rings
+
+
+@lru_cache(maxsize=32)
+def hotspot_buffer(key: str, depth: float = 0.15) -> dict:
+    """客户热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元），及各热点圆的重叠；口径见 `hotspot_buffer.py`。
+    落在评估剔除区内的单元不算（与积水点覆盖「剔除多半在剔除区的片」同口径）。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    c = _cells(key)
+    hs = hotspots()["features"]
+    hx, hy = _lonlat_to_utm40(np.array([f["geometry"]["coordinates"][0] for f in hs]),
+                              np.array([f["geometry"]["coordinates"][1] for f in hs]))
+    skip = hb.points_in_polygons(c["xy"][:, 0], c["xy"][:, 1], _exclusion_rings())
+    out = hb.buffer_stats(c["xy"], c["area"], c["frames"], c["t_h"], np.stack([hx, hy], 1),
+                          [f["properties"]["hotspot_id"] for f in hs], depth, skip=skip)
+    out["state"] = key
+    out["n_excluded_cells"] = int(skip.sum())
+    return out

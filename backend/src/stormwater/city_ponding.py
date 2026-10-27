@@ -420,6 +420,20 @@ def ponding_points(pdir: str, state: str, depth: float = 0.15, min_area: float =
     return out
 
 
+@lru_cache(maxsize=16)
+def hotspot_buffer(pdir: str, state: str, depth: float = 0.15) -> dict[str, Any]:
+    """交付的热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元），及各热点圆的重叠；口径见 `hotspot_buffer.py`。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    c = _cells(pdir, state)
+    hs = _source(pdir)["hotspots"]
+    out = hb.buffer_stats(c["xy"].astype(float), c["area"].astype(float), c["frames"], c["t_h"],
+                          np.array([[h["x"], h["y"]] for h in hs], float), [h["id"] for h in hs], depth)
+    out["state"] = state
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 命令行
 # ---------------------------------------------------------------------------
