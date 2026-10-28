@@ -620,6 +620,8 @@ export default {
     a30Near: '200 m 内 ≥0.30 m 面积',
     volNear: '200 m 内最大积水量',
     deepestAt: '最深出现在',
+    loc: '位置',
+    coord: '经纬度',
     at: '出现时刻',
     total: '{n} 个热点合计',
     totalNote: '汇水区取并集（不是各点相加）',

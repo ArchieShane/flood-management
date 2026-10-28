@@ -14,7 +14,7 @@ const props = defineProps({
   error: { type: String, default: '' },
   rainMin: { type: Number, default: null },   // 降雨历时（min），给了就画雨停线
   kind: { type: String, default: 'point' },   // point = 模型算出的积水点；hotspot = 用户关注的积水点（客户热点，200 m 圆内）
-  subtitle: { type: String, default: '' },    // 热点的片区 / 位置，帮着认是哪一个
+  facts: { type: Array, default: () => [] },  // 原来点这个点时展示的信息 [[名, 值], …]：积水点 = 详情卡片，关注积水点 = 地图弹窗；弹框里照样给全
 })
 const emit = defineEmits(['close'])
 
@@ -101,7 +101,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <button class="pcm-x" :aria-label="t('sim.pointCurve.close')" @click="emit('close')">×</button>
         </header>
 
-        <p v-if="subtitle" class="pcm-subtitle">{{ subtitle }}</p>
+        <dl v-if="facts.length" class="pcm-facts">
+          <template v-for="[k, v] in facts" :key="k"><dt>{{ k }}</dt><dd>{{ v }}</dd></template>
+        </dl>
         <p v-if="loading" class="pcm-msg">{{ t('sim.pointCurve.loading') }}</p>
         <p v-else-if="error" class="pcm-msg err">{{ error }}</p>
         <template v-else-if="series && chart">
@@ -145,7 +147,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .pcm-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
 .pcm-x { background: none; border: 0; color: var(--muted, rgba(255, 255, 255, 0.5)); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .pcm-x:hover { color: var(--fg, #fff); }
-.pcm-subtitle { margin: 2px 0 0; color: var(--muted, rgba(255, 255, 255, 0.5)); font-size: 12px; }
+.pcm-facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 10px 0 0; padding: 10px 12px; font-size: 12px; line-height: 17px;
+  background: var(--card-2, #212327); border-radius: 6px; }
+.pcm-facts dt { color: var(--muted, rgba(255, 255, 255, 0.5)); }
+.pcm-facts dd { margin: 0; color: var(--fg, #fff); overflow-wrap: anywhere; }
 .pcm-msg { color: var(--muted, rgba(255, 255, 255, 0.5)); padding: 28px 0; text-align: center; margin: 0; }
 .pcm-msg.err { color: var(--red, #d9434b); }
 .pcm-seg { display: inline-flex; gap: 2px; margin-top: 10px; background: var(--card-2, #212327); border-radius: 6px; padding: 2px; }

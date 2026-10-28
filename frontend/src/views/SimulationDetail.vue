@@ -32,10 +32,10 @@ import RunSummary from '../components/sim/RunSummary.vue'
 import SimShell from '../components/sim/SimShell.vue'
 import { RDA_KEY, useRda } from '../composables/useRda'
 import { locale, t } from '../i18n'
-import { tr } from '../i18n/rda'
+import { tr, trj } from '../i18n/rda'
 import { useToastStore } from '../stores/toast'
 import { PERF_COLOR, perfClass, perfPopup } from '../utils/perf'
-import { analysisLabel, fmtInt, fmtWhen, stateCode, statusLabel } from '../utils/sim'
+import { analysisLabel, fmtInt, fmtLatLon, fmtWhen, stateCode, statusLabel } from '../utils/sim'
 
 const props = defineProps({ id: { type: String, required: true } })
 const route = useRoute()
@@ -113,15 +113,49 @@ watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immedi
    · point：模型算出的积水点。RD-A 按清单里这个点的经纬度取，全市按编号取；阈值用当前清单生效的那一套，曲线峰值才与列表一致。
    · hotspot：用户关注的积水点（客户热点）。取它 200 m 圆内的逐帧过程，阈值用「圆内峰值积水量」那一栏正在用的，峰值与那一栏一致。
    原来的地图弹窗、热点表、积水点详情卡片都照旧，趋势是在它们之上多弹一个框。 ---- */
-const curve = ref(null)   // { id, kind, subtitle, loading, error, series }
+const curve = ref(null)   // { id, kind, loading, error, series }
 let curveSeq = 0
-const hotInfo = id => {
-  const p = (hotspots.value?.points || []).find(x => x.id === id)
-  return p ? [p.district, p.criticality, p.location].filter(Boolean).join(' · ') : ''
-}
+const nf = (v, d = 2) => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: d }))
+/** 弹框里随曲线一起给的信息 = 原来点这个点时看到的那份：积水点是下面详情卡片（PondingTab）的内容，关注积水点是地图弹窗（ResultMap.hotPopup）的内容 */
+const curveFacts = computed(() => {
+  const c = curve.value
+  if (!c) return []
+  if (c.kind === 'hotspot') {
+    const h = (hotspots.value?.points || []).find(x => x.id === c.id)
+    if (!h) return []
+    const sts = hotspots.value?.states || []
+    const st = h.stats?.[sts.includes(stateKey.value) ? stateKey.value : sts[0]] || {}
+    const nr = st.near_200m || {}
+    const cat = st.catchment
+    const out = [[t('sim.hotspots.loc'), [h.district, h.criticality, h.location].filter(Boolean).join(' · ') || '—'],
+      [t('sim.hotspots.near'), `${nf(nr.max_depth_m)} m`]]
+    if (cat) {
+      out.push([t('sim.hotspots.a30'), `${nf(cat.area_ge_0_30_ha)} ha`],
+        [t('sim.hotspots.vol'), `${cat.max_volume_m3 == null ? '—' : fmtInt(cat.max_volume_m3)} m³（T+${nf(cat.max_volume_h)} h）`])
+    } else {
+      out.push([t('sim.hotspots.a30Near'), `${nf(nr.area_ge_0_30_ha)} ha`],
+        [t('sim.hotspots.volNear'), `${nr.max_volume_m3 == null ? '—' : fmtInt(nr.max_volume_m3)} m³${nr.t_max_depth_h == null ? '' : `（${t('sim.hotspots.deepestAt')} T+${nf(nr.t_max_depth_h)} h）`}`])
+    }
+    if (h.lat != null) out.push([t('sim.hotspots.coord'), fmtLatLon(h)])
+    return out
+  }
+  const p = ((isRda.value ? rda.ponding.value : pts.ponding.value)?.points || []).find(x => x.id === c.id)
+  if (!p) return []
+  const out = [
+    [tr('最大水深'), `${nf(p.hmax_m)} m（${tr('地面高程')} ${nf(p.ground_z_m)} m）${p.t_hmax_h != null ? `，${tr('出现在')} ${nf(p.t_hmax_h)} h` : ''}`],
+    [tr('面积'), `${fmtInt(p.area_m2)} m²（${tr('其中')} ≥0.30 m：${fmtInt(p.area_ge030_m2)} m²）`],
+  ]
+  if (p.area_peak_m2 != null) out.push([tr('最大积水面积'), `${fmtInt(p.area_peak_m2)} m²，${tr('出现在')} ${nf(p.t_area_peak_h)} h`])
+  out.push([tr('峰值积水量'), `${fmtInt(p.vol_peak_m3)} m³，${tr('出现在')} ${nf(p.t_peak_h)} h`], [tr('持续'), `${nf(p.duration_h)} h`],
+    [tr('退水'), p.receded ? `${tr('已退')} · ${tr('峰值后')} ${nf(p.recede_h)} h` : `${tr('未退')} · ${tr('到 {t} h 仍有 {v} m³', { t: p.t_end_h, v: fmtInt(p.vol_end_m3) })}`],
+    [tr('最近客户热点'), `${p.nearest_client_hotspot}（${fmtInt(p.nearest_client_hotspot_dist_m)} m）`],
+    [tr('200 m 内热点'), p.near_hotspots?.length ? p.near_hotspots.map(h => `${h.hotspot} ${h.dist_m} m`).join('、') : tr('无')])
+  if (p.l3) out.push([tr('结论'), tr(p.l3.verdict)], [tr('定级依据'), trj(p.l3.basis)], [tr('L3 手段'), tr(p.l3.measure)])
+  return out
+})
 async function openCurve(id, kind = 'point') {
   const my = ++curveSeq
-  curve.value = { id, kind, subtitle: kind === 'hotspot' ? hotInfo(id) : '', loading: true, error: '', series: null }
+  curve.value = { id, kind, loading: true, error: '', series: null }
   try {
     let s
     if (kind === 'hotspot') {
@@ -367,7 +401,7 @@ async function cancel() {
       <PondingPointsPanel :pts="pts" @locate="onLocate" />
     </section>
 
-    <PointCurveModal v-if="curve" :id="curve.id" :kind="curve.kind" :subtitle="curve.subtitle" :series="curve.series" :loading="curve.loading" :error="curve.error"
+    <PointCurveModal v-if="curve" :id="curve.id" :kind="curve.kind" :facts="curveFacts" :series="curve.series" :loading="curve.loading" :error="curve.error"
                      :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" @close="closeCurve" />
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">
