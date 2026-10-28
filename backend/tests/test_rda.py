@@ -156,6 +156,23 @@ def test_hotspot_circle_series_peak_matches_buffer(key):
     assert client.get(f"/api/rda/states/{key}/hotspot-buffer/{buf['hotspots'][0]['id']}/series", params={"depth": 9}).status_code == 422
 
 
+def test_sugg_equipment_xlsx_matches_ledger():
+    """推荐方案规划设备清单（Excel）：措施清单 = 台账全部措施；设备明细 = 设施图层里推荐方案新增的设备，且都挂得回措施；每台有关键参数。"""
+    from stormwater import rda_sugg_equipment_xlsx as x
+
+    wb = x.build()
+    assert wb.sheetnames == ["汇总", "措施清单", "设备明细", "地面取水口", "叠加的既有设施", "与当前方案差异"]
+    ms = rda.suggested()["measures"]
+    rows = lambda name: list(wb[name].iter_rows(min_row=2, values_only=True))
+    assert {r[0] for r in rows("措施清单") if r[0]} == {m["id"] for m in ms}
+    feats = [f["properties"] for f in rda.facilities_geojson("OPTCS2")["features"] if f["properties"]["kind"] in x.NEW_KINDS]
+    dev = rows("设备明细")
+    assert len(dev) == len(feats) and {str(r[0]) for r in dev} == {str(p["编号"]) for p in feats}
+    assert {r[1] for r in dev} <= {m["id"] for m in ms}
+    assert all(r[8] for r in dev) and all(r[3] for r in dev)
+    assert len(rows("地面取水口")) == len(rda.suggested()["intakes"])
+
+
 def test_custom_ponding_endpoint_and_limits():
     d = client.get("/api/rda/states/OPTCS2/ponding/custom?depth=0.2&min_area=200&min_dur=1").json()
     assert d["custom"] and d["count"] > 0 and d["points"][0]["cells"]
