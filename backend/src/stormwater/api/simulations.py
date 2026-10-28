@@ -450,6 +450,16 @@ def get_hotspots(run_id: int, lang: str = Lang):
         raise _fail(exc, lang) from exc
 
 
+@router.get("/{run_id}/equipment")
+def get_equipment(run_id: int, lang: str = Lang):
+    """全市应对设备配置：第一档固定设施（L2 sugg，45%）与第二档移动泵 + 罐车（L3，20%）的各场景数量；没有这两个文件的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.equipment(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
 @router.get("/{run_id}/l2")
 def get_l2(run_id: int, lang: str = Lang):
     """全市 L1 交付任务的第二道防线（Line 2 Current）：一维报告的两态对照 + 已建成塘。

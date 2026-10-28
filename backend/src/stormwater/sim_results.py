@@ -51,10 +51,16 @@ NO_STATE = "这份成果没有这个方案态"
 NO_EFFECT = "这个任务不是多态成果，没有方案效果可比"
 NO_PROPOSED_PONDS = "没有拟建调蓄池数据"
 NO_HOTSPOTS = "这个任务没有积水点"
+NO_EQUIPMENT = "这个任务没有应对设备配置数据"
 
 #: 拟建调蓄池（交付方给的选址方案，EPSG:32640 多边形），与具体任务无关，详情页按需叠加
 PROPOSED_PONDS_FILE = DATA_ROOT / "temp" / "proposed_ponds.geojson"
-MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS)
+MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS, NO_EQUIPMENT)
+
+#: 全市应对设备配置（2026-10-28 交付）：放在成果目录根上的两个文件，第一档固定设施（L2 sugg，总水量 45%）、第二档移动泵与罐车（L3，20%）
+EQUIPMENT_FILES = {"fixed": "equipment_fixed.json", "mobile": "equipment_mobile.json"}
+#: 原文件里只留数字和协议值；英文标题 / 范围 / 备注由页面按中英文自己写，不透传
+_EQUIPMENT_KEEP = ("generated", "inputs", "assumptions", "scenarios")
 
 #: 多态交付（一个任务涵盖几种工况，如 Mussafah 四态）的清单文件，放在 `output_dir` 根上，见 `sim_sww.py`：
 #: {"default": "L1", "states": [{"key", "label", "defence_line_key", "dir", "same_as"}]}
@@ -304,6 +310,21 @@ def ponding(conn: psycopg.Connection, run_id: int, state: str | None = None) -> 
         return sim_ponding.load(d)
     except sim_ponding.PondingError as exc:
         raise sim.SimulationError(422, NO_PONDING) from exc
+
+
+def equipment(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """全市应对设备配置：{fixed, mobile} 各是 generated / inputs / assumptions / scenarios。
+
+    只有总量和数量，没有位置、没有逐台设备；管长、扬程、效率是占位值（页面照实注明）。两个文件缺一个就整体 404。
+    """
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    paths = {k: root / f for k, f in EQUIPMENT_FILES.items()}
+    if DATA_ROOT.resolve() not in root.parents or not all(p.is_file() for p in paths.values()):
+        raise sim.SimulationError(404, NO_EQUIPMENT)
+    return {k: {f: _load(p)[f] for f in _EQUIPMENT_KEEP} for k, p in paths.items()}
 
 
 def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:

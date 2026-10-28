@@ -73,7 +73,9 @@ export const fetchSimulationStorage = (id, state) => get(`/api/simulations/${id}
 /** 交付自带的设施 GIS（塘 / 泵点 / 排水去向 / 地面取水片，sim_l2.facilities_layer）；没有 404。 */
 export const fetchSimulationFacilities = (id, state) => get(`/api/simulations/${id}/layers/facilities${stateQ(state)}`)
 /** 交付自带的积水点（如 C1 的 8 个热点）：坐标 / 汇水区面 / 逐态统计，不带 ?state=；没有的任务 404。 */
-export const fetchSimulationHotspots = id => get(`/api/simulations/${id}/hotspots`)
+/** 全市应对设备配置（第一档固定设施 45% / 第二档移动泵与罐车 20%）：成果目录里没有这两份文件的任务 404。 */
+export const fetchSimulationEquipment = id => get(`/api/simulations/${id}/equipment`)
+export const fetchSimulationHotspots =id => get(`/api/simulations/${id}/hotspots`)
 /** 模拟积水点（口径同 RD-A，`city_ponding.py`）：元信息（态 / 热点 / 域外热点）与按阈值现算的清单；没有的任务 404。 */
 export const fetchPondingPointsMeta = id => get(`/api/simulations/${id}/ponding-points/meta`)
 export const fetchPondingPoints = (id, state, depth, minArea, minDur) =>

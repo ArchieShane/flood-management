@@ -23,6 +23,7 @@ import RunCompare from '../components/sim/RunCompare.vue'
 import LevelPanel from '../components/sim/LevelPanel.vue'
 import PerfPanel from '../components/sim/PerfPanel.vue'
 import RdaPanels from '../components/rda/RdaPanels.vue'
+import CityEquipment from '../components/sim/CityEquipment.vue'
 import PondingPointsPanel from '../components/sim/PondingPointsPanel.vue'
 import VolumeCurve from '../components/sim/VolumeCurve.vue'
 import PointCurveModal from '../components/sim/PointCurveModal.vue'
@@ -390,6 +391,9 @@ async function cancel() {
     <!-- RD-A / 全市：总积水量随时间的折线，随地图上选的态走 -->
     <VolumeCurve v-if="(isRda || isCity) && run?.has_layers && !perf" :key="`${run.id}|${stateKey || ''}`"
                  :run-id="run.id" :state="stateKey" :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" />
+
+    <!-- 全市：L2 之后的应对设备配置（L2 sugg 固定设施 / L3 移动泵与罐车）；没有这份数据的任务整块不出现 -->
+    <CityEquipment v-if="isCity && !perf" :run-id="run.id" :rain-label="run.rain_label || ''" />
 
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
