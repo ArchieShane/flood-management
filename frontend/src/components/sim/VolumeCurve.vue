@@ -41,18 +41,27 @@ const charts = computed(() => {
   const x = tl.value
   if (!x) return []
   const thr = x.wet_threshold_m == null ? '' : Number(x.wet_threshold_m).toFixed(2)
-  return [
-    { key: 'vol', title: t('sim.detail.volCurve'), points: series('volume_m3'), unit: 'm³', axisY: t('sim.detail.volAxisY'),
-      fmt: v => fmtInt(Math.round(v)), note: t('sim.detail.volNote') },
-    { key: 'area', title: t('sim.detail.areaCurve'), points: series('wet_area_m2', 1e6), unit: 'km²', axisY: t('sim.detail.areaAxisY'),
-      fmt: v => fmtKm2(v), note: t('sim.detail.areaNote', { d: thr }) },
-    { key: 'depth', title: t('sim.detail.depthCurve'), points: series('max_depth_m'), unit: 'm', axisY: t('sim.detail.depthAxisY'),
-      fmt: v => Number(v).toFixed(2), note: t('sim.detail.depthNote') },
-  ].filter(c => c.points.length)
+  const vol = { points: series('volume_m3'), unit: 'm³', axisY: t('sim.detail.volAxisY'), fmt: v => fmtInt(Math.round(v)) }
+  const depth = { points: series('max_depth_m'), unit: 'm', axisY: t('sim.detail.depthAxisY'), fmt: v => Number(v).toFixed(2) }
+  const out = []
+  // 总积水量（左轴）+ 最大积水深度（右轴）一张图；哪一项拿不出就只剩另一项的单线图
+  if (vol.points.length && depth.points.length) {
+    out.push({ key: 'vol', title: t('sim.detail.volDepthCurve'), ...vol, second: depth, note: `${t('sim.detail.volNote')} ${t('sim.detail.depthNote')}` })
+  } else if (vol.points.length) {
+    out.push({ key: 'vol', title: t('sim.detail.volCurve'), ...vol, note: t('sim.detail.volNote') })
+  } else if (depth.points.length) {
+    out.push({ key: 'depth', title: t('sim.detail.depthCurve'), ...depth, note: t('sim.detail.depthNote') })
+  }
+  const area = series('wet_area_m2', 1e6)
+  if (area.length) {
+    out.push({ key: 'area', title: t('sim.detail.areaCurve'), points: area, unit: 'km²', axisY: t('sim.detail.areaAxisY'),
+      fmt: v => fmtKm2(v), note: t('sim.detail.areaNote', { d: thr }) })
+  }
+  return out
 })
 </script>
 
 <template>
   <TimeSeriesChart v-for="c in charts" :key="c.key" :title="c.title" :points="c.points" :unit="c.unit" :axis-y="c.axisY"
-                   :fmt="c.fmt" :note="c.note" :rain-min="rainMin" />
+                   :fmt="c.fmt" :note="c.note" :second="c.second" :rain-min="rainMin" />
 </template>

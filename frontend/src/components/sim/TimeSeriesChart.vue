@@ -1,6 +1,7 @@
 <script setup>
 /* 一条「随时间变化」的折线卡片：横轴为降雨开始后的小时数，纵轴一个指标；鼠标移上去读各时刻的值，不移动时显示峰值。
-   总积水量 / 总积水面积 / 最大积水深度三张图共用（`VolumeCurve.vue` 取一次数据，三份一起传下来）。 */
+   可选再带一条线（`second`）画在右轴上，左右两个刻度各自取整、刻度线对齐同一组网格（总积水量 + 最大积水深度那张图）。
+   `VolumeCurve.vue` 取一次数据，把各张图的数据传下来。 */
 import { computed, ref } from 'vue'
 
 import { t } from '../../i18n'
@@ -13,13 +14,16 @@ const props = defineProps({
   fmt: { type: Function, required: true },            // 读数的格式化
   note: { type: String, default: '' },
   rainMin: { type: Number, default: null },            // 降雨历时（min），给了就画雨停线
+  /** 画在右轴的第二条线：{ points, unit, axisY, fmt }；不给就是单线图 */
+  second: { type: Object, default: null },
 })
 
 const W = 960
 const HT = 280
-const PAD = { l: 78, r: 24, t: 16, b: 42 }
-const PW = W - PAD.l - PAD.r
-const PH = HT - PAD.t - PAD.b
+const dual = computed(() => !!props.second?.points?.length)
+const PAD = computed(() => ({ l: 78, r: dual.value ? 66 : 24, t: 16, b: 42 }))
+const PW = computed(() => W - PAD.value.l - PAD.value.r)
+const PH = HT - 16 - 42
 
 function niceTicks(max, count = 5) {
   const raw = max / count
@@ -30,22 +34,43 @@ function niceTicks(max, count = 5) {
   for (let v = 0; v <= top + step / 2; v += step) out.push(v)
   return { ticks: out, top, step }
 }
-/** 纵轴刻度：步长 ≥ 1 取整并加千分位，小数量级（km²、m）按步长留位，免得全显示成 0.1 / 0.2 */
-const tickLabel = (v, step) => (step >= 1 ? Math.round(v).toLocaleString('en-US') : v.toFixed(Math.min(4, Math.ceil(-Math.log10(step)))))
+/** 右轴：刻度个数跟左轴一致（刻度线才对得上同一组网格），步长取 1 / 2 / 2.5 / 5 × 10^k 里放得下最大值的那个 */
+function ticksN(max, n) {
+  const raw = max / n
+  const mag = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw)
+  return { ticks: Array.from({ length: n + 1 }, (_, i) => i * step), top: step * n, step }
+}
+/** 纵轴刻度：按步长实际需要的小数位留位（步长 2.5 就留 1 位，不能取整成 3 / 8；0.05 留 2 位），整数步长加千分位 */
+const tickLabel = (v, step) => {
+  let d = 0
+  while (d < 4 && Math.abs(step * 10 ** d - Math.round(step * 10 ** d)) > 1e-9) d++
+  return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+}
+const peakOf = pts => pts.reduce((a, p) => (p.v > a.v ? p : a), { m: 0, v: 0 })
 
-const peak = computed(() => props.points.reduce((a, p) => (p.v > a.v ? p : a), { m: 0, v: 0 }))
+const peak = computed(() => peakOf(props.points))
+const peak2 = computed(() => (dual.value ? peakOf(props.second.points) : null))
 const chart = computed(() => {
   const P = props.points
   if (P.length < 2 || !(peak.value.v > 0)) return null
+  const { l, t: pt } = PAD.value
   const T = P[P.length - 1].m
   const y = niceTicks(peak.value.v)
   const xT = niceTicks(T / 60, 8)
-  const x = m => PAD.l + (m / T) * PW
-  const yv = v => PAD.t + PH - (v / y.top) * PH
-  const line = P.map(p => `${x(p.m).toFixed(1)},${yv(p.v).toFixed(1)}`).join(' ')
+  const x = m => l + (m / T) * PW.value
+  const yv = v => pt + PH - (v / y.top) * PH
+  const mk = (pts, f) => pts.map(p => `${x(p.m).toFixed(1)},${f(p.v).toFixed(1)}`).join(' ')
+  const line = mk(P, yv)
+  let r = null
+  if (dual.value && peak2.value.v > 0) {
+    const y2 = ticksN(peak2.value.v, y.ticks.length - 1)
+    const f2 = v => pt + PH - (v / y2.top) * PH
+    r = { y: f2, line: mk(props.second.points, f2), right: y2.ticks.map(v => ({ v, y: f2(v), label: tickLabel(v, y2.step) })) }
+  }
   return {
-    line,
-    area: `${PAD.l},${PAD.t + PH} ${line} ${x(T).toFixed(1)},${PAD.t + PH}`,
+    line, r,
+    area: `${l},${pt + PH} ${line} ${x(T).toFixed(1)},${pt + PH}`,
     left: y.ticks.map(v => ({ v, y: yv(v), label: tickLabel(v, y.step) })),
     bottom: xT.ticks.filter(h => h * 60 <= T + 1e-6).map(h => ({ h, x: x(h * 60) })),
     rainX: props.rainMin != null && props.rainMin < T ? x(props.rainMin) : null,
@@ -54,16 +79,20 @@ const chart = computed(() => {
 })
 
 const hover = ref(null)
+const nearest = (pts, m) => pts.reduce((b, p) => (!b || Math.abs(p.m - m) < Math.abs(b.m - m) ? p : b), null)
 function onMove(ev) {
   const c = chart.value
   if (!c) return
   const r = ev.currentTarget.getBoundingClientRect()
-  const m = ((((ev.clientX - r.left) / r.width) * W - PAD.l) / PW) * c.T
-  let best = null
-  for (const p of props.points) if (!best || Math.abs(p.m - m) < Math.abs(best.m - m)) best = p
-  hover.value = m >= 0 && m <= c.T ? best : null
+  const m = ((((ev.clientX - r.left) / r.width) * W - PAD.value.l) / PW.value) * c.T
+  hover.value = m >= 0 && m <= c.T ? m : null
 }
-const cur = computed(() => hover.value || peak.value)
+/** 读数：悬停取离鼠标最近的一帧，不悬停取各自的峰值（两条线的峰值时刻通常不同，所以各给各的时刻） */
+const cur = computed(() => (hover.value == null ? peak.value : nearest(props.points, hover.value)))
+const cur2 = computed(() => {
+  if (!dual.value || !chart.value?.r) return null
+  return hover.value == null ? peak2.value : nearest(props.second.points, hover.value)
+})
 const clock = min => `T+${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')}`
 </script>
 
@@ -71,22 +100,33 @@ const clock = min => `T+${Math.floor(min / 60)}:${String(Math.round(min % 60)).p
   <section v-if="chart" class="sim-card vc">
     <div class="vc-head">
       <span class="vc-title">{{ title }}</span>
-      <span class="vc-hover">{{ clock(cur.m) }} · {{ fmt(cur.v) }} {{ unit }}<template v-if="!hover"> ({{ t('sim.detail.volPeak') }})</template></span>
+      <span class="vc-hover">
+        <template v-if="cur2">
+          <template v-if="hover != null">{{ clock(cur.m) }} · </template>
+          <i class="vc-sw" />{{ fmt(cur.v) }} {{ unit }}<template v-if="hover == null"> @ {{ clock(cur.m) }}</template>&emsp;
+          <i class="vc-sw b" />{{ second.fmt(cur2.v) }} {{ second.unit }}<template v-if="hover == null"> @ {{ clock(cur2.m) }} ({{ t('sim.detail.volPeak') }})</template>
+        </template>
+        <template v-else>{{ clock(cur.m) }} · {{ fmt(cur.v) }} {{ unit }}<template v-if="hover == null"> ({{ t('sim.detail.volPeak') }})</template></template>
+      </span>
     </div>
     <svg class="vc-svg" :viewBox="`0 0 ${W} ${HT}`" role="img" :aria-label="title" @mousemove="onMove" @mouseleave="hover = null">
       <g v-for="g in chart.left" :key="'g' + g.v">
         <line :x1="PAD.l" :x2="W - PAD.r" :y1="g.y" :y2="g.y" class="vc-grid" />
-        <text :x="PAD.l - 8" :y="g.y + 4" text-anchor="end" class="vc-tx">{{ g.label }}</text>
+        <text :x="PAD.l - 8" :y="g.y + 4" text-anchor="end" class="vc-tx" :class="{ a: chart.r }">{{ g.label }}</text>
       </g>
+      <text v-for="g in chart.r?.right || []" :key="'r' + g.v" :x="W - PAD.r + 8" :y="g.y + 4" class="vc-tx b">{{ g.label }}</text>
       <text v-for="g in chart.bottom" :key="'b' + g.h" :x="g.x" :y="HT - PAD.b + 18" text-anchor="middle" class="vc-tx">{{ g.h }}</text>
       <polygon :points="chart.area" class="vc-fill" />
       <line v-if="chart.rainX != null" :x1="chart.rainX" :x2="chart.rainX" :y1="PAD.t" :y2="PAD.t + PH" class="vc-rain" />
       <text v-if="chart.rainX != null" :x="chart.rainX + 6" :y="PAD.t + 12" class="vc-tx">{{ t('sim.detail.volRainEnd') }}</text>
       <polyline :points="chart.line" class="vc-line" />
-      <circle :cx="chart.x(cur.m)" :cy="chart.y(cur.v)" r="4" class="vc-dot" />
+      <polyline v-if="chart.r" :points="chart.r.line" class="vc-line b" />
+      <circle :cx="chart.x(cur.m)" :cy="chart.y(cur.v)" r="4" :class="chart.r ? 'vc-dot a' : 'vc-dot'" />
+      <circle v-if="cur2 && chart.r" :cx="chart.x(cur2.m)" :cy="chart.r.y(cur2.v)" r="4" class="vc-dot b" />
       <line :x1="PAD.l" :x2="W - PAD.r" :y1="PAD.t + PH" :y2="PAD.t + PH" class="vc-axis" />
       <text :x="PAD.l + PW / 2" :y="HT - 6" text-anchor="middle" class="vc-tx">{{ t('sim.detail.volAxisX') }}</text>
-      <text :transform="`translate(14 ${PAD.t + PH / 2}) rotate(-90)`" text-anchor="middle" class="vc-tx">{{ axisY }}</text>
+      <text :transform="`translate(14 ${PAD.t + PH / 2}) rotate(-90)`" text-anchor="middle" class="vc-tx" :class="{ a: chart.r }">{{ axisY }}</text>
+      <text v-if="chart.r" :transform="`translate(${W - 12} ${PAD.t + PH / 2}) rotate(90)`" text-anchor="middle" class="vc-tx b">{{ second.axisY }}</text>
     </svg>
     <p v-if="note" class="vc-note">{{ note }}</p>
   </section>
@@ -102,9 +142,16 @@ const clock = min => `T+${Math.floor(min / 60)}:${String(Math.round(min % 60)).p
 .vc-grid { stroke: var(--line); }
 .vc-axis { stroke: var(--faint); }
 .vc-tx { fill: var(--muted); }
+.vc-tx.a { fill: var(--blue-lt, #7fb0e6); }
+.vc-tx.b { fill: var(--amber, #e0a44e); }
 .vc-fill { fill: var(--blue); opacity: 0.12; }
 .vc-line { fill: none; stroke: var(--blue); stroke-width: 2; stroke-linejoin: round; }
+.vc-line.b { stroke: var(--amber, #e0a44e); }
 .vc-dot { fill: var(--red); }
+.vc-dot.a { fill: var(--blue-lt, #7fb0e6); }
+.vc-dot.b { fill: var(--amber, #e0a44e); }
+.vc-sw { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; background: var(--blue); }
+.vc-sw.b { background: var(--amber, #e0a44e); }
 .vc-rain { stroke: var(--muted); stroke-dasharray: 4 4; }
 .vc-note { color: var(--muted); font-size: 12px; line-height: 16px; margin: 4px 0 0; }
 </style>

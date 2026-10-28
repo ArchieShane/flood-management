@@ -222,6 +222,7 @@ export default {
     volAxisX: 'Time since rain start (h)',
     volAxisY: 'Total surface ponded volume (m³)',
     volNote: 'Total surface ponded volume = Σ (depth × cell area), the same basis as the map frames; hover the curve to read any time.',
+    volDepthCurve: 'Total ponded volume and max ponded depth over time',
     areaCurve: 'Total ponded area over time',
     areaAxisY: 'Ponded area (km²)',
     areaNote: 'Sum of the area of cells with depth ≥ {d} m at the same instant (the delivery’s wet threshold), the same basis as the map’s “max ponded area”; the curve’s peak is that number.',
