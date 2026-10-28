@@ -19,7 +19,7 @@
     GET    /api/simulations/{id}/layers/frames/{index}  第 index 帧的「格子号 → 水深」紧凑数组
     GET    /api/simulations/{id}/layers/timeline        播放用的逐帧当前值（同刻积水面积、最深、累计溢水量、已出现溢水点）
     GET    /api/simulations/{id}/ponding-points/{编号}/series  单个模拟积水点逐帧的积水量 / 面积 / 最大水深
-    GET    /api/simulations/{id}/ponding-points[/meta]模拟积水点（按阈值现算，口径同 RD-A；?depth=&min_area=&min_dur=），`city_ponding.py`
+    GET    /api/simulations/{id}/ponding-points[/meta]  模拟积水点（按阈值现算，口径同 RD-A；?depth=&min_area=&min_dur=），`city_ponding.py`
     GET    /api/simulations/{id}/hotspot-buffer         热点 200 m 圆内的地表峰值积水量 + 圆重叠（?depth=），`hotspot_buffer.py`
     GET    /api/simulations/{id}/hotspots               交付自带的积水点（热点）：坐标 / 汇水区 / 逐态统计，没有 404
     GET    /api/simulations/{id}/layers/ponding         按 docs/analysis_ponding 算法重算的易积水片区
