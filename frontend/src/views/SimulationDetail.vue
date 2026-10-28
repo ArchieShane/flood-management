@@ -13,10 +13,10 @@
    全市任务（run.has_l2，#100 / #101 / #102）的「第二道现状」不跳到别的任务，而是本任务的第二道视图（?line=l2）：
    右侧总览的第二道溢水量、面积、水深按 L1 × (1 − 一维报告减少比例) 折算（sim_l2.estimate），储水能力取一维报告。
    多态任务（Mussafah #191）的总览四项全部取效果分析的 columns（交付实算，不折算）；切到 L2 态地图另叠已建成调蓄塘；对比按钮收起。 */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { cancelSimulation, fetchHotspotCircleSeries, fetchPondingPointSeries, fetchRdaHotspotCircleSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
+import { cancelSimulation, fetchHotspotCircleSeries, fetchPondingPointSeries, fetchRdaHotspotCircleSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationEquipment, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import ResultMap from '../components/sim/ResultMap.vue'
 import RunCompare from '../components/sim/RunCompare.vue'
@@ -198,7 +198,27 @@ function onSimPoint(id) {
   rda.selPoint.value = id
   document.querySelector('.sd-rda')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
-const setState = k => router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
+const setState = k => {
+  eqTab.value = null
+  router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
+}
+
+/* 全市应对设备配置：右上角的 L2 sugg / L3 两个按钮，和 L1 / L2 同一排；点哪个就在下面展开哪一档，再点 L1 / L2 收起。
+   数据是成果目录里的两份文件，没有的任务（接口 404）不出按钮。 */
+const equip = ref(null)
+const eqTab = ref(null)   // null | 'fixed'（L2 sugg）| 'mobile'（L3）
+watch(() => [isCity.value, run.value?.id], async ([city, rid]) => {
+  equip.value = eqTab.value = null
+  if (!city || rid == null) return
+  try {
+    const x = await fetchSimulationEquipment(rid)
+    if (run.value?.id === rid) equip.value = x
+  } catch { /* 404 = 这个任务没有这份数据，不出按钮 */ }
+}, { immediate: true })
+function pickEq(k) {
+  eqTab.value = eqTab.value === k ? null : k
+  if (eqTab.value) nextTick(() => document.querySelector('.sd-equip')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
 const stateTitle = s => stateCode(s.same_as ? t('sim.detail.sameAs', { label: s.label, as: s.same_as }) : s.label)
 watch(stateKey, () => {
   layerMeta.value = ponding.value = pondActive.value = hotspots.value = null
@@ -344,11 +364,19 @@ async function cancel() {
       </div>
       <div v-else-if="run?.line_runs" class="sd-lines">
         <div v-if="states" class="sd-seg" role="tablist">
-          <button v-for="s in states" :key="s.key" role="tab" :class="{ on: s.key === stateKey }"
-                  :aria-selected="s.key === stateKey" :title="`${stateTitle(s)} · ${s.defence_line_label}`"
+          <button v-for="s in states" :key="s.key" role="tab" :class="{ on: s.key === stateKey && !eqTab }"
+                  :aria-selected="s.key === stateKey && !eqTab" :title="`${stateTitle(s)} · ${s.defence_line_label}`"
                   @click="setState(s.key)">
             {{ stateCode(s.key) }}
           </button>
+          <template v-if="equip">
+            <button role="tab" :class="{ on: eqTab === 'fixed' }" :aria-selected="eqTab === 'fixed'" :title="t('sim.equip.tabFixed', { p: `${Math.round(equip.fixed.inputs.share_fixed * 100)}%` })" @click="pickEq('fixed')">
+              {{ t('sim.equip.btnFixed') }}
+            </button>
+            <button role="tab" :class="{ on: eqTab === 'mobile' }" :aria-selected="eqTab === 'mobile'" :title="t('sim.equip.tabMobile', { p: `${Math.round(equip.fixed.inputs.share_mobile * 100)}%` })" @click="pickEq('mobile')">
+              {{ t('sim.equip.btnMobile') }}
+            </button>
+          </template>
         </div>
         <div v-else class="sd-seg" role="tablist">
           <button v-for="lr in lineTabs" :key="lr.defence_line_key" role="tab"
@@ -392,8 +420,8 @@ async function cancel() {
     <VolumeCurve v-if="(isRda || isCity) && run?.has_layers && !perf" :key="`${run.id}|${stateKey || ''}`"
                  :run-id="run.id" :state="stateKey" :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" />
 
-    <!-- 全市：L2 之后的应对设备配置（L2 sugg 固定设施 / L3 移动泵与罐车）；没有这份数据的任务整块不出现 -->
-    <CityEquipment v-if="isCity && !perf" :run-id="run.id" :rain-label="run.rain_label || ''" />
+    <!-- 全市：L2 之后的应对设备配置；右上角点 L2 sugg（固定设施）/ L3（移动泵与罐车）才展开 -->
+    <CityEquipment v-if="isCity && !perf && equip && eqTab" :data="equip" :tab="eqTab" :rain-label="run.rain_label || ''" />
 
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">

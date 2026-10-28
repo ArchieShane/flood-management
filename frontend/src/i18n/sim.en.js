@@ -684,6 +684,8 @@ export default {
     title: 'Response equipment plan',
     sub: 'City-wide, {rain}. The surface water left after L2 is shared by two tiers: fixed facilities take 45% of the total, mobile pumps and tankers take 20%.',
     caveat: 'City-wide totals and counts only: no locations, and not a unit-by-unit list; counts are a lower bound (water sits in many separate low spots). Pipe lengths, pump head and efficiency are placeholders, used for estimates only.',
+    btnFixed: 'L2 sugg',
+    btnMobile: 'L3',
     wan: '10⁴ m³',
     budget: {
       total: 'City-wide total water',

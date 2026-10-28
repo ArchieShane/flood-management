@@ -4,37 +4,23 @@
    · L3 页签 = 第二档，移动泵与罐车，承担 20%。
    数据取 `/equipment`（成果目录里的两份设备配置文件）：只有全市总量和数量，没有位置、也不是逐台设备；
    管长、扬程、效率是占位值。没有这份数据的任务接口 404，本块整块不出现。 */
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 
-import { fetchSimulationEquipment } from '../../api'
 import { t } from '../../i18n'
 import { fmtInt } from '../../utils/sim'
 import '../../styles/rda.css'
 
 const props = defineProps({
-  runId: { type: [Number, String], required: true },
+  data: { type: Object, default: null },     // /equipment 的返回（由详情页取）；没有就整块不出现
+  tab: { type: String, default: 'fixed' },   // 'fixed' = L2 sugg 固定设施，'mobile' = L3 移动泵与罐车；由右上角的 L2 sugg / L3 按钮切
   rainLabel: { type: String, default: '' },
 })
-
-const data = ref(null)
-const tab = ref('fixed')
-let ticket = 0
-watch(() => props.runId, async () => {
-  data.value = null
-  const my = ++ticket
-  try {
-    const x = await fetchSimulationEquipment(props.runId)
-    if (my === ticket) data.value = x
-  } catch {
-    if (my === ticket) data.value = null
-  }
-}, { immediate: true })
 
 const n1 = v => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 }))
 const wan = v => (v == null ? '—' : n1(Number(v) / 1e4))
 const pct = v => `${Math.round(Number(v) * 100)}%`
 
-const inp = computed(() => data.value?.fixed.inputs || {})
+const inp = computed(() => props.data?.fixed.inputs || {})
 const budget = computed(() => {
   const i = inp.value
   return [
@@ -46,11 +32,11 @@ const budget = computed(() => {
   ]
 })
 
-const asFixed = computed(() => data.value?.fixed.assumptions || {})
-const fixedRows = computed(() => (data.value?.fixed.scenarios || [])
+const asFixed = computed(() => props.data?.fixed.assumptions || {})
+const fixedRows = computed(() => (props.data?.fixed.scenarios || [])
   .slice().sort((a, b) => a.drain_time_h - b.drain_time_h || b.external_share - a.external_share))
-const asMobile = computed(() => data.value?.mobile.assumptions || {})
-const mobileRows = computed(() => (data.value?.mobile.scenarios || [])
+const asMobile = computed(() => props.data?.mobile.assumptions || {})
+const mobileRows = computed(() => (props.data?.mobile.scenarios || [])
   .slice().sort((a, b) => b.drain_time_h - a.drain_time_h || a.tanker_share - b.tanker_share))
 
 /** 「需要 n（缺 m）」：缺口为 0 就只写需要数 */
@@ -58,7 +44,7 @@ const need = x => (x.additional_needed > 0 ? t('sim.equip.needGap', { n: fmtInt(
 </script>
 
 <template>
-  <section v-if="data" class="sim-card sd-rda">
+  <section v-if="data" class="sim-card sd-rda sd-equip">
     <div class="rda-ui">
       <h3>{{ t('sim.equip.title') }}</h3>
       <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel }) }}</p>
@@ -71,12 +57,8 @@ const need = x => (x.additional_needed > 0 ? t('sim.equip.needGap', { n: fmtInt(
         </div>
       </div>
 
-      <nav class="tabs">
-        <button :class="{ on: tab === 'fixed', sugg: true }" @click="tab = 'fixed'">{{ t('sim.equip.tabFixed', { p: pct(inp.share_fixed) }) }}</button>
-        <button :class="{ on: tab === 'mobile' }" @click="tab = 'mobile'">{{ t('sim.equip.tabMobile', { p: pct(inp.share_mobile) }) }}</button>
-      </nav>
-
       <div v-if="tab === 'fixed'" class="pane">
+        <h4>{{ t('sim.equip.tabFixed', { p: pct(inp.share_fixed) }) }}</h4>
         <p class="muted small">{{ t('sim.equip.fixedNote', { n: asFixed.fixed_pump.pumps_per_station, q: asFixed.fixed_pump.unit_flow_m3s }) }}</p>
         <div class="dev-scroll">
           <table class="tbl small-t">
@@ -106,6 +88,7 @@ const need = x => (x.additional_needed > 0 ? t('sim.equip.needGap', { n: fmtInt(
       </div>
 
       <div v-else class="pane">
+        <h4>{{ t('sim.equip.tabMobile', { p: pct(inp.share_mobile) }) }}</h4>
         <p class="muted small">{{ t('sim.equip.mobileNote', { n: asMobile.existing_movable_pumps.count, q: n1(asMobile.existing_movable_pumps.total_flow_m3s) }) }}</p>
         <div class="dev-scroll">
           <table class="tbl small-t">
