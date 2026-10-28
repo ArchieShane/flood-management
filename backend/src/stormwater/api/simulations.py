@@ -18,7 +18,8 @@
     GET    /api/simulations/{id}/layers/max-depth       逐格最大水深 GeoJSON（几何只在这里给一次）
     GET    /api/simulations/{id}/layers/frames/{index}  第 index 帧的「格子号 → 水深」紧凑数组
     GET    /api/simulations/{id}/layers/timeline        播放用的逐帧当前值（同刻积水面积、最深、累计溢水量、已出现溢水点）
-    GET    /api/simulations/{id}/ponding-points[/meta]  模拟积水点（按阈值现算，口径同 RD-A；?depth=&min_area=&min_dur=），`city_ponding.py`
+    GET    /api/simulations/{id}/ponding-points/{编号}/series  单个模拟积水点逐帧的积水量 / 面积 / 最大水深
+    GET    /api/simulations/{id}/ponding-points[/meta]模拟积水点（按阈值现算，口径同 RD-A；?depth=&min_area=&min_dur=），`city_ponding.py`
     GET    /api/simulations/{id}/hotspot-buffer         热点 200 m 圆内的地表峰值积水量 + 圆重叠（?depth=），`hotspot_buffer.py`
     GET    /api/simulations/{id}/hotspots               交付自带的积水点（热点）：坐标 / 汇水区 / 逐态统计，没有 404
     GET    /api/simulations/{id}/layers/ponding         按 docs/analysis_ponding 算法重算的易积水片区
@@ -378,6 +379,27 @@ def get_ponding_points(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return dict(body)
+
+
+@router.get("/{run_id}/ponding-points/{point_id}/series")
+def get_ponding_point_series(
+    run_id: int,
+    point_id: str,
+    state: str | None = State,
+    depth: float = Query(0.15),
+    min_area: float = Query(100.0),
+    min_dur: float = Query(0.5),
+    lang: str = Lang,
+):
+    """某个模拟积水点逐帧的积水量 / ≥depth 面积 / 最大水深；阈值要与清单一致（编号只在同一态、同一阈值内有效）。"""
+    pdir = _points_dir(run_id, lang)
+    key = state or city_ponding.meta(pdir)["states"][0]
+    try:
+        return city_ponding.point_series(str(pdir), key, point_id, round(depth, 3), round(min_area, 1), round(min_dur, 2))
+    except city_ponding.PointsError as exc:
+        raise HTTPException(status_code=404, detail=tr(str(exc), lang)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{run_id}/hotspot-buffer")

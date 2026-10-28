@@ -224,6 +224,18 @@ export default {
     volNote: 'Total surface ponded volume = Σ (depth × cell area), the same basis as the map frames; hover the curve to read any time.',
     resultsPending: 'The results map is not built yet; this page lists the run settings and result metrics.',
   },
+  pointCurve: {
+    title: 'Ponding point {id} · trend',
+    vol: 'Volume',
+    area: 'Ponded area',
+    depth: 'Max depth',
+    peak: 'peak',
+    close: 'Close',
+    loading: 'Loading this ponding point’s time series…',
+    empty: 'No time series for this ponding point.',
+    end: 'At end of run ({h} h): {v} m³ left',
+    note: 'Volume = Σ (depth × area) over all cells in the point’s patch; ponded area = area of cells with depth ≥ {d} m; max depth = deepest cell in the patch. {n} cells, same basis as the peak in the list.',
+  },
   map: {
     title: 'Results map',
     modeMax: 'Maximum depth',

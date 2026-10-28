@@ -126,6 +126,18 @@ def test_custom_ponding_reproduces_delivered_list(key, depth):
         assert m["receded"] == r["receded"] and abs(m["hmax_m"] - r["hmax_m"]) <= 0.01
 
 
+@pytest.mark.parametrize("key", ["L1", "OPTCS2"])
+def test_point_series_peak_matches_delivered_point(key):
+    """单点过程：用成果自带清单里那个点的经纬度取，曲线峰值 = 清单的峰值积水量，峰值时刻对得上；找不到的点 404。"""
+    for r in rda.ponding(key, "0.15")["points"][:3]:
+        s = client.get(f"/api/rda/states/{key}/ponding/series", params={"lon": r["lon"], "lat": r["lat"], "depth": 0.15}).json()
+        assert len(s["t_h"]) == len(s["vol_m3"]) == len(s["area_m2"]) == len(s["depth_m"]) > 10
+        i = max(range(len(s["vol_m3"])), key=lambda j: s["vol_m3"][j])
+        assert abs(s["vol_m3"][i] - r["vol_peak_m3"]) <= max(2, 0.003 * r["vol_peak_m3"]), r["id"]
+        assert abs(s["t_h"][i] - r["t_peak_h"]) < 0.02
+    assert client.get(f"/api/rda/states/{key}/ponding/series", params={"lon": 0, "lat": 0}).status_code == 404
+
+
 def test_custom_ponding_endpoint_and_limits():
     d = client.get("/api/rda/states/OPTCS2/ponding/custom?depth=0.2&min_area=200&min_dur=1").json()
     assert d["custom"] and d["count"] > 0 and d["points"][0]["cells"]

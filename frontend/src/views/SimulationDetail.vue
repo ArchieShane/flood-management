@@ -16,7 +16,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { cancelSimulation, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
+import { cancelSimulation, fetchPondingPointSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import ResultMap from '../components/sim/ResultMap.vue'
 import RunCompare from '../components/sim/RunCompare.vue'
@@ -25,6 +25,7 @@ import PerfPanel from '../components/sim/PerfPanel.vue'
 import RdaPanels from '../components/rda/RdaPanels.vue'
 import PondingPointsPanel from '../components/sim/PondingPointsPanel.vue'
 import VolumeCurve from '../components/sim/VolumeCurve.vue'
+import PointCurveModal from '../components/sim/PointCurveModal.vue'
 import { usePondingPoints } from '../composables/usePondingPoints'
 import RunHyetograph from '../components/sim/RunHyetograph.vue'
 import RunSummary from '../components/sim/RunSummary.vue'
@@ -108,7 +109,40 @@ const simPoints = computed(() => (isRda.value ? (rda.ponding.value?.points || []
 })) : pts.enabled.value ? pts.mapPoints.value : null))
 const simSelected = computed(() => (isRda.value ? rda.selPoint.value : pts.enabled.value ? pts.selPoint.value : null))
 watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immediate: true })
+/* ---- 点一个积水点弹出它的积水趋势（逐帧积水量 / 面积 / 最大水深）。
+   RD-A 按清单里这个点的经纬度取，全市按编号取；阈值用当前清单生效的那一套，曲线峰值才与列表一致。 ---- */
+const curve = ref(null)   // { id, loading, error, series }
+let curveSeq = 0
+async function openCurve(id) {
+  const my = ++curveSeq
+  curve.value = { id, loading: true, error: '', series: null }
+  try {
+    let s
+    if (isRda.value) {
+      const p = (rda.ponding.value?.points || []).find(x => x.id === id)
+      if (!p) throw new Error(t('sim.pointCurve.empty'))
+      const { depth, area, dur } = rda.pp.value
+      s = await fetchRdaPointSeries(rdaState.value, p.lon, p.lat, depth, area, dur)
+    } else {
+      const { depth, area, dur } = pts.pp.value
+      s = await fetchPondingPointSeries(run.value.id, stateKey.value, id, depth, area, dur)
+    }
+    if (my === curveSeq) curve.value.series = s
+  } catch (e) {
+    if (my === curveSeq) curve.value.error = e.message
+  } finally {
+    if (my === curveSeq) curve.value.loading = false
+  }
+}
+const closeCurve = () => { curveSeq++; curve.value = null }
+watch([() => props.id, stateKey], closeCurve)
+/** 面板里点行 / 点热点旁的积水点标签：地图飞过去；点的是积水点就再弹趋势 */
+function onLocate(e) {
+  mapRef.value?.flyToPoint(e.lat, e.lon)
+  if (e.kind === 'point' && e.id) openCurve(e.id)
+}
 function onSimPoint(id) {
+  openCurve(id)
   if (pts.enabled.value) {
     pts.selPoint.value = id
     document.querySelector('.sd-pts')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -314,13 +348,16 @@ async function cancel() {
 
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
-      <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
+      <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="onLocate" />
     </section>
 
     <!-- 全市一二维任务的模拟积水点：口径同 RD-A（阈值可调、热点覆盖率、最大值时刻），随地图上选的态走 -->
     <section v-if="pts.enabled.value && run?.has_layers && !perf" class="sim-card sd-rda sd-pts">
-      <PondingPointsPanel :pts="pts" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
+      <PondingPointsPanel :pts="pts" @locate="onLocate" />
     </section>
+
+    <PointCurveModal v-if="curve" :id="curve.id" :series="curve.series" :loading="curve.loading" :error="curve.error"
+                     :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" @close="closeCurve" />
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">
       <p v-if="!run.has_layers" class="sim-empty" style="padding-top: 0">{{ t('sim.detail.resultsPending') }}</p>

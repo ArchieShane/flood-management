@@ -407,7 +407,7 @@ def ponding_points(pdir: str, state: str, depth: float = 0.15, min_area: float =
             "nearest_client_hotspot": nid, "nearest_client_hotspot_dist_m": int(round(ndist)),
             "n_client_hotspots_200m": len(nl),
             "near_hotspots": [{"hotspot": h_, "dist_m": int(round(d_))} for d_, h_ in nl],
-            "cells": int(ncell[k]),
+            "cells": int(ncell[k]), "_k": k,
         })
     pts.sort(key=lambda p: -p["vol_peak_m3"])
     for i, p in enumerate(pts, 1):
@@ -415,9 +415,33 @@ def ponding_points(pdir: str, state: str, depth: float = 0.15, min_area: float =
                   "min_duration_h": min_dur, "excluded": False, "mostly_excluded": False, "exclusion_note": None,
                   "area_after_exclusion_m2": None, "l3": None, "status": "已退" if p["receded"] else "未退",
                   "adjacency": "mesh"})
+    # 编号 → 连片号，单点过程（point_series）要用；连片号不进返回体
+    _LABELS[(pdir, state, depth, min_area, min_dur)] = (wet, lab, {p["id"]: p.pop("_k") for p in pts})
+    while len(_LABELS) > 8:
+        _LABELS.pop(next(iter(_LABELS)))
     out.update(count=len(pts), peak_vol_sum_m3=sum(p["vol_peak_m3"] for p in pts),
                not_receded=sum(not p["receded"] for p in pts), points=pts)
     return out
+
+
+#: 最近几次 `ponding_points` 的连片结果：(目录, 态, 阈值…) → (湿格全局号, 湿格所属连片号, 编号→连片号)
+_LABELS: dict[tuple, tuple[np.ndarray, np.ndarray, dict[str, int]]] = {}
+
+
+def point_series(pdir: str, state: str, point_id: str, depth: float = 0.15, min_area: float = 100.0, min_dur: float = 0.5) -> dict[str, Any]:
+    """某个积水点逐帧的积水量 / ≥depth 面积 / 最大水深（算法见 `rda.cell_series`）。阈值要与清单一致，编号才对得上。"""
+    key = (pdir, state, depth, min_area, min_dur)
+    r = ponding_points(*key)
+    if key not in _LABELS:                  # 清单走了 lru 缓存、连片结果被挤出去了：重算一次补回来
+        ponding_points.__wrapped__(*key)
+    p = next((x for x in r["points"] if x["id"] == point_id), None)
+    if p is None or key not in _LABELS:
+        raise PointsError("找不到这个积水点（态或阈值变了？）")
+    wet, lab, idmap = _LABELS[key]
+    c = _cells(pdir, state)
+    cells = wet[lab == idmap[point_id]]
+    return {"id": point_id, "state": state, "vol_peak_m3": p["vol_peak_m3"], "t_peak_h": p["t_peak_h"],
+            **rda.cell_series(c["frames"], c["area"].astype(float), cells, depth, c["t_h"])}
 
 
 @lru_cache(maxsize=16)

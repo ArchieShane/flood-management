@@ -51,6 +51,19 @@ def test_peak_fields_are_consistent():
     assert abs(max(p["hmax_m"] for p in r["points"]) - 3.76) < 0.02       # 交付：L1 全域最大水深 3.765 m
 
 
+def test_point_series_peaks_match_list():
+    """单点过程的曲线峰值 = 清单里的峰值积水量 / 最大面积；清单走 lru 缓存之后连片结果被挤出去也要能补回来。"""
+    r, _ = _cover("L1", 0.15)
+    for p in r["points"][:3]:
+        s = city_ponding.point_series(str(PDIR), "L1", p["id"], 0.15, 100.0, 0.5)
+        assert len(s["t_h"]) == len(s["vol_m3"]) == len(s["area_m2"]) == len(s["depth_m"])
+        assert abs(max(s["vol_m3"]) - p["vol_peak_m3"]) <= 1 and abs(max(s["area_m2"]) - p["area_peak_m2"]) <= 1
+    city_ponding._LABELS.clear()
+    assert city_ponding.point_series(str(PDIR), "L1", r["points"][0]["id"], 0.15, 100.0, 0.5)["n_cells"] == r["points"][0]["cells"]
+    with pytest.raises(city_ponding.PointsError):
+        city_ponding.point_series(str(PDIR), "L1", "SIM-L1-999999", 0.15, 100.0, 0.5)
+
+
 def test_params_checked():
     with pytest.raises(ValueError):
         city_ponding.ponding_points(str(PDIR), "L1", 9.0, 100.0, 0.5)

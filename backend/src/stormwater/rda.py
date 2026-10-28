@@ -768,6 +768,32 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
     }
 
 
+def cell_series(F: np.ndarray, area: np.ndarray, cells: np.ndarray, depth: float, t_h: np.ndarray) -> dict:
+    """一片积水（一组单元）逐帧的变化过程：积水量 Σ(水深×面积)、≥depth 的面积、片内最大水深。
+    与 `ponding_custom` 的峰值积水量 / 最大面积同一算法，所以曲线峰值 = 清单里的 vol_peak_m3 / area_peak_m2。"""
+    Fc = F[:, cells].astype(np.float32)
+    ca = area[cells].astype(np.float64)
+    return {
+        "t_h": [round(float(v), 4) for v in t_h],
+        "vol_m3": [round(float(v), 1) for v in (Fc * ca).sum(axis=1)],
+        "area_m2": [round(float(v), 1) for v in ((Fc >= depth) * ca).sum(axis=1)],
+        "depth_m": [round(float(v), 3) for v in Fc.max(axis=1)],
+        "depth_threshold_m": depth, "n_cells": int(len(cells)),
+    }
+
+
+def point_series(key: str, lon: float, lat: float, depth: float = 0.15, min_area: float = 100.0, min_dur: float = 0.5) -> dict:
+    """某个积水点随时间的积水量 / 面积 / 最大水深。积水点按经纬度对上（成果自带清单与重算清单都带 lon / lat，
+    默认阈值下两者逐点一致，匹配方式同 `_add_peak_times`）；阈值要与清单当时用的一致，否则找不到。"""
+    pts = ponding_custom(key, depth, min_area, min_dur)["points"]
+    p = next((q for q in pts if round(q["lon"], 5) == round(lon, 5) and round(q["lat"], 5) == round(lat, 5)), None)
+    if p is None:
+        raise RdaError("找不到这个积水点（态或阈值变了？）")
+    c = _cells(key)
+    return {"id": p["id"], "state": key, "vol_peak_m3": p["vol_peak_m3"], "t_peak_h": p["t_peak_h"],
+            **cell_series(c["frames"], c["area"], np.asarray(p["cells"], dtype=np.int64), depth, c["t_h"])}
+
+
 @lru_cache(maxsize=1)
 def _exclusion_rings() -> list[np.ndarray]:
     """评估剔除区的多边形环（UTM 40N 坐标）。"""
