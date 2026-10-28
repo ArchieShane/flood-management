@@ -223,6 +223,12 @@ export default {
     volAxisX: '降雨开始后的时间（h）',
     volAxisY: '地表积水总量（m³）',
     volNote: '地表积水总量 = Σ（水深 × 单元面积），与地图逐帧同一口径；鼠标移到曲线上看各时刻的值。',
+    areaCurve: '总积水面积随时间变化',
+    areaAxisY: '积水面积（km²）',
+    areaNote: '同一时刻水深 ≥ {d} m 的单元面积之和（交付的干湿阈值），与地图「最大积水面积」同口径，曲线峰值就是那个数。',
+    depthCurve: '最大积水深度随时间变化',
+    depthAxisY: '最大积水深度（m）',
+    depthNote: '同一时刻全域最深的单元的水深，曲线峰值就是地图上的「最大水深」。',
     resultsPending: '结果地图页尚未开发，这里先列出任务参数与结果指标。',
   },
   pointCurve: {

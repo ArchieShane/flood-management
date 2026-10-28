@@ -222,6 +222,12 @@ export default {
     volAxisX: 'Time since rain start (h)',
     volAxisY: 'Total surface ponded volume (m³)',
     volNote: 'Total surface ponded volume = Σ (depth × cell area), the same basis as the map frames; hover the curve to read any time.',
+    areaCurve: 'Total ponded area over time',
+    areaAxisY: 'Ponded area (km²)',
+    areaNote: 'Sum of the area of cells with depth ≥ {d} m at the same instant (the delivery’s wet threshold), the same basis as the map’s “max ponded area”; the curve’s peak is that number.',
+    depthCurve: 'Max ponded depth over time',
+    depthAxisY: 'Max ponded depth (m)',
+    depthNote: 'Depth of the deepest cell in the whole domain at the same instant; the curve’s peak is the map’s “max depth”.',
     resultsPending: 'The results map is not built yet; this page lists the run settings and result metrics.',
   },
   pointCurve: {
