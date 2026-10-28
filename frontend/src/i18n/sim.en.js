@@ -216,6 +216,12 @@ export default {
     cancel: 'Cancel run',
     cancelled: 'Run cancelled',
     hyeto: 'Hyetograph',
+    volCurve: 'Total ponded volume over time',
+    volPeak: 'peak',
+    volRainEnd: 'Rain ends',
+    volAxisX: 'Time since rain start (h)',
+    volAxisY: 'Total surface ponded volume (m³)',
+    volNote: 'Total surface ponded volume = Σ (depth × cell area), the same basis as the map frames; hover the curve to read any time.',
     resultsPending: 'The results map is not built yet; this page lists the run settings and result metrics.',
   },
   map: {

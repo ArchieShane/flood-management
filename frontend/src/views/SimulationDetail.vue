@@ -24,6 +24,7 @@ import LevelPanel from '../components/sim/LevelPanel.vue'
 import PerfPanel from '../components/sim/PerfPanel.vue'
 import RdaPanels from '../components/rda/RdaPanels.vue'
 import PondingPointsPanel from '../components/sim/PondingPointsPanel.vue'
+import VolumeCurve from '../components/sim/VolumeCurve.vue'
 import { usePondingPoints } from '../composables/usePondingPoints'
 import RunHyetograph from '../components/sim/RunHyetograph.vue'
 import RunSummary from '../components/sim/RunSummary.vue'
@@ -306,6 +307,10 @@ async function cancel() {
                   :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
     </div>
     <RunCompare v-else-if="run && compare" class="sd-cmp-solo" :run="run" @open="openLine" />
+
+    <!-- RD-A / 全市：总积水量随时间的折线，随地图上选的态走 -->
+    <VolumeCurve v-if="(isRda || isCity) && run?.has_layers && !perf" :key="`${run.id}|${stateKey || ''}`"
+                 :run-id="run.id" :state="stateKey" :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" />
 
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">

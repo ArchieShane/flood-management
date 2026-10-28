@@ -217,6 +217,12 @@ export default {
     cancel: '取消任务',
     cancelled: '任务已取消',
     hyeto: '雨型图',
+    volCurve: '总积水量随时间变化',
+    volPeak: '峰值',
+    volRainEnd: '雨停',
+    volAxisX: '降雨开始后的时间（h）',
+    volAxisY: '地表积水总量（m³）',
+    volNote: '地表积水总量 = Σ（水深 × 单元面积），与地图逐帧同一口径；鼠标移到曲线上看各时刻的值。',
     resultsPending: '结果地图页尚未开发，这里先列出任务参数与结果指标。',
   },
   map: {
