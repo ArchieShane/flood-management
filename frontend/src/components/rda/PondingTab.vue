@@ -22,13 +22,13 @@ const at = h => (h == null ? '' : `@ ${Number(h).toFixed(2)} h`)
 const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
 const outside = computed(() => unref(R.outsideDomain) || [])
 const gridNote = computed(() => unref(R.gridNote) || '')
-/** 积水点列表：按最大水深降序，默认只出前 10 条，点「更多」展开其余。
+/** 积水点列表：按最大积水量（峰值积水量）降序，默认只出前 10 条，点「更多」展开其余。
     全市一份清单上千片，一次全展开页面会卡，所以超过 300 条时「更多」每次再出 100 条；300 条以内一次出完。 */
 const PAGE = 10
 const BIG = 300
 const BIG_STEP = 100
 const shown = ref(PAGE)
-const sortedPoints = computed(() => [...R.visiblePoints.value].sort((a, b) => (b.hmax_m ?? -Infinity) - (a.hmax_m ?? -Infinity)))
+const sortedPoints = computed(() => [...R.visiblePoints.value].sort((a, b) => (b.vol_peak_m3 ?? -Infinity) - (a.vol_peak_m3 ?? -Infinity)))
 const listPoints = computed(() => sortedPoints.value.slice(0, shown.value))
 const restN = computed(() => Math.max(0, sortedPoints.value.length - shown.value))
 function morePoints() {
@@ -276,7 +276,7 @@ defineExpose({ pickPoint })
         </span>
       </div>
       <label class="small"><input v-model="rda.nearOnly.value" type="checkbox" /> {{ tr('只看客户热点 200 m 内') }}</label>
-      <p class="muted small">{{ tr('编号 SIM-态-序号是模型算出的积水点，不是客户热点（序号按峰值积水量排）；列表按最大水深降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。', { n: PAGE }) }}</p>
+      <p class="muted small">{{ tr('编号 SIM-态-序号是模型算出的积水点，不是客户热点；列表按最大积水量降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。', { n: PAGE }) }}</p>
       <div v-if="rda.selectedPoint.value" class="card">
         <h4>
           {{ rda.selectedPoint.value.id }}

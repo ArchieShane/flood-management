@@ -161,8 +161,8 @@ const EN = {
   '剔': 'Ex',
   '{n} 片 · 峰值合计 {v} m³ · 未退 {k}': '{n} patches · peak total {v} m³ · {k} not receded',
   '只看客户热点 200 m 内': 'Only within 200 m of a client hotspot',
-  '编号 SIM-态-序号是模型算出的积水点，不是客户热点（序号按峰值积水量排）；列表按最大水深降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。':
-    'SIM-state-number IDs are ponding points found by the model, not client hotspots (the number follows peak volume); the list is sorted by max depth, the first {n} are shown by default, valid only within the same state and thresholds.',
+  '编号 SIM-态-序号是模型算出的积水点，不是客户热点；列表按最大积水量降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。':
+    'SIM-state-number IDs are ponding points found by the model, not client hotspots; the list is sorted by max volume, the first {n} are shown by default, valid only within the same state and thresholds.',
   '更多（还有 {n} 条）': 'More ({n} left)',
   '收起，只看前 {n} 条': 'Collapse, show only the first {n}',
   '评估剔除区': 'Assessment exclusion zone',
