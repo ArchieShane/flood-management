@@ -3,7 +3,7 @@
    `/rda` 页的右栏和仿真任务详情页（RDA 那条）共用这一份；数据与选中项都在 `useRda()` 里，传进来的 `rda`。
    点行时往外抛 `locate`，由外面的地图去飞 / 画高亮；本组件不碰地图。
    `overview` 插槽给 /rda 页放它自己的概览（详情页已有对比 / 效果分析，不放）。 */
-import { computed, useSlots } from 'vue'
+import { computed, ref, useSlots } from 'vue'
 
 import { ledgerId } from '../../composables/useRda'
 import PondingTab from './PondingTab.vue'
@@ -80,6 +80,44 @@ function measureDrain(m) {
   if (m.outfall) bits.push(tr('排到新建排海口 {o}', { o: m.outfall }))
   return bits
 }
+
+/* ---- 规划设备清单：推荐方案新增的每一台设备（地下调蓄池 / 重力管 / 泵站 + 压力输水 / 地面取水口），逐台一行 ----
+   数据 = 本态设施图层（编号 / 类型 / 位置 / 流量 / 池容）+ 措施台账（设计参数）+ 地面取水口表；关键参数一句话照台账字段拼，不另编口径。
+   点一行 = 定位并打开所属措施的详情（设计参数 / 怎么排水 / 合规检查）。 */
+const DEVICE_KINDS = ['tank', 'gpipe', 'conv', 'sump']
+const devKind = ref('all')
+const intakeById = computed(() => Object.fromEntries((R.suggested.value?.intakes || []).map(r => [r['取水口'], r])))
+function deviceDetail(kind, m, ik) {
+  const b = []
+  if (kind === 'tank' && m) {
+    b.push(tr('池容 {v} m³、有效水深 {d} m、池底 {f} m、开挖 {e} m', { v: int(m.tank_m3), d: f1(m.effective_depth_m), f: f2(m.invert_m), e: f1(m.excavation_m) }))
+    if (m.intercept_wells) b.push(`${tr('截流井')} ${m.intercept_wells}`)
+  } else if (kind === 'gpipe' && m) {
+    b.push(tr('重力管（截流井→池）{l} m、DN{d}', { l: int(m.pipe_len_m), d: dn(m.pipe_dia_m) }))
+  } else if (kind === 'conv' && m) {
+    if (m.pumps) b.push(tr('{n} 台泵 × {q} m³/s（设计流量 {d} m³/s）', { n: m.pumps, q: f2(m.pump_q_m3s), d: f2(m.design_q_m3s) }))
+    if (m.pipe_len_m) b.push(tr('压力管 {l} m、DN{d}×{p}、峰值流速 {v} m/s', { l: int(m.pipe_len_m), d: dn(m.pipe_dia_m), p: m.pipe_parallel || 1, v: f2(m.velocity_ms) }))
+    if (m.outfall) b.push(tr('排到新建排海口 {o}', { o: m.outfall }))
+  } else if (kind === 'sump' && ik) {
+    b.push(tr(ik['类别']), `${tr('坑底 m')} ${f2(ik['坑底高程 m'])}`, `${tr('取水 m³/s')} ${f2(ik['取水流量 m³/s'])}`, `${tr('泵站')} ${ik['所属地面泵站']}`)
+  }
+  return b.join(' · ')
+}
+const devices = computed(() => {
+  const feats = (R.fac.value?.geojson.features || []).map(f => f.properties).filter(p => DEVICE_KINDS.includes(p.kind))
+  return feats.map(p => {
+    const lid = ledgerId(p['编号'])
+    const m = R.measureById.value[lid]
+    const ik = intakeById.value[String(p['编号'])]
+    return { id: p['编号'], kind: p.kind, lid, hotspot: m?.hotspot ?? ik?.['服务热点'] ?? '—', flow: p['流量 L/s'], tank: p['池容 m³'], detail: deviceDetail(p.kind, m, ik) }
+  }).sort((a, b) => DEVICE_KINDS.indexOf(a.kind) - DEVICE_KINDS.indexOf(b.kind) || String(a.lid).localeCompare(String(b.lid)) || String(a.id).localeCompare(String(b.id)))
+})
+const devCounts = computed(() => {
+  const out = {}
+  for (const d of devices.value) out[d.kind] = (out[d.kind] || 0) + 1
+  return out
+})
+const shownDevices = computed(() => (devKind.value === 'all' ? devices.value : devices.value.filter(d => d.kind === devKind.value)))
 
 const hasOverview = computed(() => !!slots.overview)
 /** 本态设施图层里各类型的个数（逐级累加，含前面各态） */
@@ -309,6 +347,28 @@ const facCounts = computed(() => {
             </tr>
           </tbody>
         </table>
+        <h4>{{ tr('规划设备清单（{n} 台）', { n: devices.length }) }}</h4>
+        <p class="muted small">{{ tr('点一行定位，并看所属措施的设计参数、怎么排水、合规检查。') }}</p>
+        <span class="seg">
+          <button :class="{ on: devKind === 'all' }" @click="devKind = 'all'">{{ tr('全部') }} {{ devices.length }}</button>
+          <button v-for="k in DEVICE_KINDS" :key="k" :class="{ on: devKind === k }" @click="devKind = k">{{ rda.kindName(k) }} {{ devCounts[k] || 0 }}</button>
+        </span>
+        <div class="dev-scroll">
+          <table class="tbl small-t dev-tbl">
+            <thead>
+              <tr>
+                <th>{{ tr('编号') }}</th><th>{{ tr('设备类型') }}</th><th>{{ tr('所属措施') }}</th><th>{{ tr('热点') }}</th><th>{{ tr('关键参数') }}</th>
+                <th>{{ tr('流量 L/s') }}</th><th>{{ tr('池容 m³') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="d in shownDevices" :key="`${d.kind}|${d.id}`" @click="pickFacilityById(d.id)">
+                <td>{{ d.id }}</td><td><u class="sw" :style="{ background: KIND_COLOR[d.kind] }" />{{ rda.kindName(d.kind) }}</td><td>{{ d.lid }}</td><td>{{ d.hotspot }}</td>
+                <td class="dev-detail">{{ d.detail }}</td><td>{{ int(d.flow) }}</td><td>{{ int(d.tank) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <template v-if="rda.suggested.value.compare?.length">
           <h4>{{ tr('方案对比（客户热点四项全过 / 全域 ≥0.30 m 积水面积）') }}</h4>
           <table class="tbl small-t">
