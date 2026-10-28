@@ -13,7 +13,7 @@
    全市任务（run.has_l2，#100 / #101 / #102）的「第二道现状」不跳到别的任务，而是本任务的第二道视图（?line=l2）：
    右侧总览的第二道溢水量、面积、水深按 L1 × (1 − 一维报告减少比例) 折算（sim_l2.estimate），储水能力取一维报告。
    多态任务（Mussafah #191）的总览四项全部取效果分析的 columns（交付实算，不折算）；切到 L2 态地图另叠已建成调蓄塘；对比按钮收起。 */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { cancelSimulation, fetchHotspotCircleSeries, fetchPondingPointSeries, fetchRdaHotspotCircleSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationEquipment, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
@@ -203,7 +203,7 @@ const setState = k => {
   router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
 }
 
-/* 全市应对设备配置：右上角的 L2 sugg / L3 两个按钮，和 L1 / L2 同一排；点哪个就在下面展开哪一档，再点 L1 / L2 收起。
+/* 全市应对设备配置：右上角的 L2 sugg / L3 两个按钮，和 L1 / L2 同一排；点哪个，右栏就显示哪一档，再点 L1 / L2 回到原来的右栏。
    数据是成果目录里的两份文件，没有的任务（接口 404）不出按钮。 */
 const equip = ref(null)
 const eqTab = ref(null)   // null | 'fixed'（L2 sugg）| 'mobile'（L3）
@@ -212,13 +212,13 @@ watch(() => [isCity.value, run.value?.id], async ([city, rid]) => {
   if (!city || rid == null) return
   try {
     const x = await fetchSimulationEquipment(rid)
-    if (run.value?.id === rid) equip.value = x
+    if (run.value?.id === rid) {
+      equip.value = x
+      if (['fixed', 'mobile'].includes(route.query.eq)) eqTab.value = route.query.eq   // 链接带 ?eq=fixed / mobile 直接打开这一档
+    }
   } catch { /* 404 = 这个任务没有这份数据，不出按钮 */ }
 }, { immediate: true })
-function pickEq(k) {
-  eqTab.value = eqTab.value === k ? null : k
-  if (eqTab.value) nextTick(() => document.querySelector('.sd-equip')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-}
+const pickEq = k => { eqTab.value = eqTab.value === k ? null : k }
 const stateTitle = s => stateCode(s.same_as ? t('sim.detail.sameAs', { label: s.label, as: s.same_as }) : s.label)
 watch(stateKey, () => {
   layerMeta.value = ponding.value = pondActive.value = hotspots.value = null
@@ -409,7 +409,9 @@ async function cancel() {
                  :l2-note="isRda ? '' : planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
                  :no-overflow="hideOverflow" :no-ledger="hideOverflow" :no-pond-points="pts.enabled.value" :sim-points="simPoints" :sim-selected="simSelected" @simpoint="onSimPoint" @hotspotpick="openCurve($event, 'hotspot')"
                  @meta="layerMeta = $event" @ponding="onPonding" @active="pondActive = $event" @now="mapNow = $event" @hotspots="hotspots = $event" />
-      <RunCompare v-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
+      <!-- 全市：右上角点 L2 sugg（固定设施）/ L3（移动泵与罐车）时，右栏换成应对设备配置；点 L1 / L2 回到原来的右栏 -->
+      <CityEquipment v-if="isCity && equip && eqTab" :data="equip" :tab="eqTab" :rain-label="run.rain_label || ''" />
+      <RunCompare v-else-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
       <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="hideOverflow" :no-pond-points="pts.enabled.value"
                   :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
@@ -419,9 +421,6 @@ async function cancel() {
     <!-- RD-A / 全市：总积水量随时间的折线，随地图上选的态走 -->
     <VolumeCurve v-if="(isRda || isCity) && run?.has_layers && !perf" :key="`${run.id}|${stateKey || ''}`"
                  :run-id="run.id" :state="stateKey" :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" />
-
-    <!-- 全市：L2 之后的应对设备配置；右上角点 L2 sugg（固定设施）/ L3（移动泵与罐车）才展开 -->
-    <CityEquipment v-if="isCity && !perf && equip && eqTab" :data="equip" :tab="eqTab" :rain-label="run.rain_label || ''" />
 
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
