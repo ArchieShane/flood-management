@@ -84,8 +84,11 @@ function measureDrain(m) {
 /* ---- 规划设备清单：推荐方案新增的每一台设备（地下调蓄池 / 重力管 / 泵站 + 压力输水 / 地面取水口），逐台一行 ----
    数据 = 本态设施图层（编号 / 类型 / 位置 / 流量 / 池容）+ 措施台账（设计参数）+ 地面取水口表；关键参数一句话照台账字段拼，不另编口径。
    点一行 = 定位并打开所属措施的详情（设计参数 / 怎么排水 / 合规检查）。 */
-const DEVICE_KINDS = ['tank', 'gpipe', 'conv', 'sump']
+const DEVICE_KINDS = ['tank', 'gpipe', 'conv', 'outfall', 'sump']
 const devKind = ref('all')
+// 排海口不在设施图层里（图层只画泵站 / 池 / 管），名称与颜色在这里补，与压力输水同级
+const devKindName = k => (k === 'outfall' ? tr('新建排海口（设备）') : rda.kindName(k))
+const DEV_COLOR = { ...KIND_COLOR, outfall: '#8e5bd9' }
 const intakeById = computed(() => Object.fromEntries((R.suggested.value?.intakes || []).map(r => [r['取水口'], r])))
 function deviceDetail(kind, m, ik) {
   const b = []
@@ -103,14 +106,34 @@ function deviceDetail(kind, m, ik) {
   }
   return b.join(' · ')
 }
+function pickDevice(d) {
+  // 排海口没有设施图层要素：直接按坐标定位；其余设备照旧开所属措施
+  if (d.kind === 'outfall') emit('locate', { lat: d.lat, lon: d.lon, kind: 'facility', id: d.id })
+  else pickFacilityById(d.id)
+}
 const devices = computed(() => {
   const feats = (R.fac.value?.geojson.features || []).map(f => f.properties).filter(p => DEVICE_KINDS.includes(p.kind))
-  return feats.map(p => {
+  const rows = feats.map(p => {
     const lid = ledgerId(p['编号'])
     const m = R.measureById.value[lid]
     const ik = intakeById.value[String(p['编号'])]
     return { id: p['编号'], kind: p.kind, lid, hotspot: m?.hotspot ?? ik?.['服务热点'] ?? '—', flow: p['流量 L/s'], tank: p['池容 m³'], detail: deviceDetail(p.kind, m, ik) }
-  }).sort((a, b) => DEVICE_KINDS.indexOf(a.kind) - DEVICE_KINDS.indexOf(b.kind) || String(a.lid).localeCompare(String(b.lid)) || String(a.id).localeCompare(String(b.id)))
+  })
+  // 新建排海口：只算本态已有压力输水所接的（与上面的 conv 行同一批措施），一个排海口一行，可被多条输水共用
+  const convLids = new Set(rows.filter(r => r.kind === 'conv').map(r => r.lid))
+  const byOut = {}
+  for (const m of R.suggested.value?.measures || []) {
+    if (m.outfall && convLids.has(m.id)) (byOut[m.outfall] ||= []).push(m)
+  }
+  for (const [oid, ms] of Object.entries(byOut)) {
+    const q = ms.reduce((s, m) => s + (m.design_q_m3s || 0), 0)
+    rows.push({
+      id: oid, kind: 'outfall', lid: ms.map(m => m.id).join('、'), hotspot: [...new Set(ms.map(m => m.hotspot))].join('、'), flow: null, tank: null,
+      lat: ms[0].outfall_lat, lon: ms[0].outfall_lon,
+      detail: [tr('经度 {lon}、纬度 {lat}', { lon: ms[0].outfall_lon, lat: ms[0].outfall_lat }), tr('{n} 条压力输水接入，设计流量合计 {q} m³/s', { n: ms.length, q: f2(q) })].join(' · '),
+    })
+  }
+  return rows.sort((a, b) => DEVICE_KINDS.indexOf(a.kind) - DEVICE_KINDS.indexOf(b.kind) || String(a.lid).localeCompare(String(b.lid)) || String(a.id).localeCompare(String(b.id)))
 })
 const devCounts = computed(() => {
   const out = {}
@@ -351,7 +374,7 @@ const facCounts = computed(() => {
         <p class="muted small">{{ tr('点一行定位，并看所属措施的设计参数、怎么排水、合规检查。') }}</p>
         <span class="seg">
           <button :class="{ on: devKind === 'all' }" @click="devKind = 'all'">{{ tr('全部') }} {{ devices.length }}</button>
-          <button v-for="k in DEVICE_KINDS" :key="k" :class="{ on: devKind === k }" @click="devKind = k">{{ rda.kindName(k) }} {{ devCounts[k] || 0 }}</button>
+          <button v-for="k in DEVICE_KINDS" :key="k" :class="{ on: devKind === k }" @click="devKind = k">{{ devKindName(k) }} {{ devCounts[k] || 0 }}</button>
         </span>
         <div class="dev-scroll">
           <table class="tbl small-t dev-tbl">
@@ -362,8 +385,8 @@ const facCounts = computed(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="d in shownDevices" :key="`${d.kind}|${d.id}`" @click="pickFacilityById(d.id)">
-                <td>{{ d.id }}</td><td><u class="sw" :style="{ background: KIND_COLOR[d.kind] }" />{{ rda.kindName(d.kind) }}</td><td>{{ d.lid }}</td><td>{{ d.hotspot }}</td>
+              <tr v-for="d in shownDevices" :key="`${d.kind}|${d.id}`" @click="pickDevice(d)">
+                <td>{{ d.id }}</td><td><u class="sw" :style="{ background: DEV_COLOR[d.kind] }" />{{ devKindName(d.kind) }}</td><td>{{ d.lid }}</td><td>{{ d.hotspot }}</td>
                 <td class="dev-detail">{{ d.detail }}</td><td>{{ int(d.flow) }}</td><td>{{ int(d.tank) }}</td>
               </tr>
             </tbody>
