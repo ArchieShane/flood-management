@@ -87,7 +87,7 @@ function measureDrain(m) {
 const DEVICE_KINDS = ['tank', 'gpipe', 'conv', 'outfall', 'sump']
 const devKind = ref('all')
 // 排海口不在设施图层里（图层只画泵站 / 池 / 管），名称与颜色在这里补，与压力输水同级
-const devKindName = k => (k === 'outfall' ? tr('新建排海口（设备）') : rda.kindName(k))
+const devKindName = k => (k === 'outfall' ? tr('新建排海口（设备）') : R.kindName(k))
 const DEV_COLOR = { ...KIND_COLOR, outfall: '#8e5bd9' }
 const intakeById = computed(() => Object.fromEntries((R.suggested.value?.intakes || []).map(r => [r['取水口'], r])))
 function deviceDetail(kind, m, ik) {
