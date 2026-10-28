@@ -63,7 +63,7 @@ const props = defineProps({
   simSelected: { type: String, default: null },
 })
 /** 取回的图层元数据与积水片区往外抛一份，详情页右侧总览（RunOverview）直接用，不再重复请求 */
-const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots', 'simpoint'])
+const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots', 'simpoint', 'hotspotpick'])
 
 /** 分档着色：**水越深颜色越深**（单色蓝阶，浅蓝 → 藏青）。
  *  原先是暗底图上「越深越亮」，用户会把深色格误读成积水点；深色要看得出，底图因此换成浅灰。 */
@@ -808,7 +808,7 @@ function drawHot() {
         zIndexOffset: 3000,
       })
     m.bindPopup(() => hotPopup(p), { className: 'rm-pop', minWidth: 220, maxWidth: 300, offset: [0, -6] })
-    m.on('click', () => (hotActive.value = p.id))
+    m.on('click', () => { hotActive.value = p.id; emit('hotspotpick', p.id) })   // 弹窗照开，另抛出去让详情页弹圆内积水趋势
     m.addTo(hotLayer)
     hotMarkers.set(p.id, m)
   }

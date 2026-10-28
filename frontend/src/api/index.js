@@ -81,6 +81,9 @@ export const fetchPondingPoints = (id, state, depth, minArea, minDur) =>
 /** 单个模拟积水点逐帧的积水量 / 面积 / 最大水深；阈值要与清单一致（编号只在同一态、同一阈值内有效）。 */
 export const fetchPondingPointSeries = (id, state, pointId, depth, minArea, minDur) =>
   get(`/api/simulations/${id}/ponding-points/${encodeURIComponent(pointId)}/series?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
+/** 单个热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（口径同下面的圆内峰值积水量）。 */
+export const fetchHotspotCircleSeries = (id, state, hotspotId, depth) =>
+  get(`/api/simulations/${id}/hotspot-buffer/${encodeURIComponent(hotspotId)}/series?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}`)
 /** 热点 200 m 圆内的地表峰值积水量 + 圆重叠（hotspot_buffer.py）。 */
 export const fetchHotspotBuffer = (id, state, depth) =>
   get(`/api/simulations/${id}/hotspot-buffer?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}`)
@@ -118,6 +121,8 @@ export const fetchRdaFrame = (state, i, base) =>
 export const fetchRdaMaxDepthDiff = (state, base) => get(`/api/rda/states/${state}/max-depth-diff?base=${base}`)
 export const fetchRdaHotspotSeries = () => get('/api/rda/hotspots/series')
 export const fetchRdaHotspotBuffer = (state, depth) => get(`/api/rda/states/${state}/hotspot-buffer?depth=${depth}`)
+export const fetchRdaHotspotCircleSeries = (state, hotspotId, depth) =>
+  get(`/api/rda/states/${state}/hotspot-buffer/${encodeURIComponent(hotspotId)}/series?depth=${depth}`)
 /** RD-A 单个积水点（按经纬度指定）逐帧的积水量 / 面积 / 最大水深。 */
 export const fetchRdaPointSeries = (state, lon, lat, depth, minArea, minDur) =>
   get(`/api/rda/states/${state}/ponding/series?lon=${lon}&lat=${lat}&depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)

@@ -226,6 +226,8 @@ export default {
   },
   pointCurve: {
     title: 'Ponding point {id} · trend',
+    titleHot: 'Watched point {id} · ponding trend within 200 m',
+    noteHot: 'A watched point has only a coordinate and no ponded extent, so the circle of radius {r} m around it stands in for it: volume = Σ (depth × area) over cells in the circle with depth ≥ {d} m; ponded area = area of those cells; max depth = deepest cell in the circle. {n} cells, same basis as the in-circle peak volume in the list; the threshold follows the in-circle peak volume panel.',
     vol: 'Volume',
     area: 'Ponded area',
     depth: 'Max depth',

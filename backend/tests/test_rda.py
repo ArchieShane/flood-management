@@ -138,6 +138,24 @@ def test_point_series_peak_matches_delivered_point(key):
     assert client.get(f"/api/rda/states/{key}/ponding/series", params={"lon": 0, "lat": 0}).status_code == 404
 
 
+@pytest.mark.parametrize("key", ["L1", "OPTCS2"])
+def test_hotspot_circle_series_peak_matches_buffer(key):
+    """热点单点过程：曲线峰值 = 热点圆内峰值积水量（`hotspot_buffer`），峰值时刻对得上；换阈值同步；找不到的热点 404。"""
+    for depth in (0.15, 0.3):
+        buf = client.get(f"/api/rda/states/{key}/hotspot-buffer", params={"depth": depth}).json()
+        for h in buf["hotspots"]:
+            s = client.get(f"/api/rda/states/{key}/hotspot-buffer/{h['id']}/series", params={"depth": depth}).json()
+            assert len(s["t_h"]) == len(s["vol_m3"]) == len(s["area_m2"]) == len(s["depth_m"]) > 10
+            assert abs(max(s["vol_m3"]) - h["vol_peak_m3"]) <= 1, (key, depth, h["id"])
+            assert s["n_cells"] == h["n_cells"]
+            if h["vol_peak_m3"] > 0:       # 两个高点几乎相等时「第一个最大值」的时刻可能不同，所以看清单峰值时刻那一帧的曲线值
+                i = min(range(len(s["t_h"])), key=lambda j: abs(s["t_h"][j] - h["t_peak_h"]))
+                assert abs(s["vol_m3"][i] - h["vol_peak_m3"]) <= 1, (key, depth, h["id"])
+                assert s["t_peak_h"] == h["t_peak_h"]
+    assert client.get(f"/api/rda/states/{key}/hotspot-buffer/NOPE/series").status_code == 404
+    assert client.get(f"/api/rda/states/{key}/hotspot-buffer/{buf['hotspots'][0]['id']}/series", params={"depth": 9}).status_code == 422
+
+
 def test_custom_ponding_endpoint_and_limits():
     d = client.get("/api/rda/states/OPTCS2/ponding/custom?depth=0.2&min_area=200&min_dur=1").json()
     assert d["custom"] and d["count"] > 0 and d["points"][0]["cells"]

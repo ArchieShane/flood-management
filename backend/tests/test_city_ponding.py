@@ -64,6 +64,16 @@ def test_point_series_peaks_match_list():
         city_ponding.point_series(str(PDIR), "L1", "SIM-L1-999999", 0.15, 100.0, 0.5)
 
 
+def test_hotspot_circle_series_peak_matches_buffer():
+    """热点单点过程的曲线峰值 = 热点圆内峰值积水量（`hotspot_buffer`）。"""
+    buf = city_ponding.hotspot_buffer(str(PDIR), "L1", 0.15)
+    for h in buf["hotspots"][:20]:
+        s = city_ponding.hotspot_circle_series(str(PDIR), "L1", h["id"], 0.15)
+        assert abs(max(s["vol_m3"]) - h["vol_peak_m3"]) <= 1 and s["n_cells"] == h["n_cells"], h["id"]
+    with pytest.raises(city_ponding.PointsError):
+        city_ponding.hotspot_circle_series(str(PDIR), "L1", "NOPE", 0.15)
+
+
 def test_params_checked():
     with pytest.raises(ValueError):
         city_ponding.ponding_points(str(PDIR), "L1", 9.0, 100.0, 0.5)

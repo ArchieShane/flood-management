@@ -50,7 +50,8 @@ function pickPoint(id) {
   if (p) emit('locate', { lat: p.lat, lon: p.lon, kind: 'point', id })
 }
 function pickHotspot(h) {
-  if (h.lat != null && h.lon != null) emit('locate', { lat: h.lat, lon: h.lon, kind: 'hotspot', id: h.id })
+  // RD-A 的热点行没有坐标：照样抛出去（外面弹圆内积水趋势），地图只在有坐标时才飞
+  emit('locate', { lat: h.lat, lon: h.lon, kind: 'hotspot', id: h.id })
 }
 defineExpose({ pickPoint })
 </script>

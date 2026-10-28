@@ -444,6 +444,19 @@ def point_series(pdir: str, state: str, point_id: str, depth: float = 0.15, min_
             **rda.cell_series(c["frames"], c["area"].astype(float), cells, depth, c["t_h"])}
 
 
+def hotspot_circle_series(pdir: str, state: str, hotspot_id: str, depth: float = 0.15) -> dict[str, Any]:
+    """某个交付热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（口径同 `hotspot_buffer`，曲线峰值 = 清单里的圆内峰值积水量）。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    h = next((x for x in _source(pdir)["hotspots"] if x["id"] == hotspot_id), None)
+    if h is None:
+        raise PointsError("找不到这个热点")
+    c = _cells(pdir, state)
+    return {"id": hotspot_id, "state": state,
+            **hb.circle_series(c["xy"].astype(float), c["area"].astype(float), c["frames"], c["t_h"], (float(h["x"]), float(h["y"])), depth)}
+
+
 @lru_cache(maxsize=16)
 def hotspot_buffer(pdir: str, state: str, depth: float = 0.15) -> dict[str, Any]:
     """交付的热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元），及各热点圆的重叠；口径见 `hotspot_buffer.py`。"""

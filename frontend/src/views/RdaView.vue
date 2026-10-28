@@ -325,6 +325,7 @@ async function drawMaxDepth() {
 
 /** 选中一个积水点 / 措施 / 设施：右栏点行 → `locate`，地图画高亮圈并飞过去 */
 function onLocate({ lat, lon, kind, id }) {
+  if (lat == null || lon == null) return    // 热点行没有坐标（详情页靠 id 弹圆内积水趋势）：这里没东西可画
   grp.sel.clearLayers()
   const color = kind === 'measure' ? '#e0a44e' : '#4786c9'
   L.circleMarker([lat, lon], { radius: 20, color, weight: 3, fillOpacity: 0 }).addTo(grp.sel)

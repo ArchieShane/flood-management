@@ -80,6 +80,29 @@ def _peak(F, cells, area, t, depth) -> dict[str, Any]:
     }
 
 
+def circle_series(xy: np.ndarray, area: np.ndarray, F: np.ndarray, t: np.ndarray, center: tuple[float, float], depth: float,
+                  radius: float = RADIUS_M, skip: np.ndarray | None = None) -> dict[str, Any]:
+    """单个热点 200 m 圆内逐帧的变化过程：圆内积水量 V(t)（只加 ≥ depth 的单元）、≥ depth 的面积、圆内最大水深。
+    选单元与算法同 `buffer_stats`，所以曲线峰值 = 清单里这个热点的「圆内峰值积水量」。"""
+    d = np.hypot(xy[:, 0] - center[0], xy[:, 1] - center[1])
+    cells = np.nonzero(d <= radius)[0]
+    skipped = 0.0
+    if skip is not None and len(cells):
+        skipped = float(area[cells[skip[cells]]].sum())
+        cells = cells[~skip[cells]]
+    v, a, h = _series(F, cells, area, depth)
+    ip = int(v.argmax())
+    return {
+        "t_h": [round(float(x), 4) for x in t],
+        "vol_m3": [round(float(x), 1) for x in v],
+        "area_m2": [round(float(x), 1) for x in a],
+        "depth_m": [round(float(x), 3) for x in h],
+        "vol_peak_m3": int(round(float(v[ip]))), "t_peak_h": round(float(t[ip]), 2),
+        "depth_threshold_m": depth, "radius_m": radius, "n_cells": int(len(cells)),
+        "cell_area_m2": int(round(float(area[cells].sum()))) if len(cells) else 0, "excluded_area_m2": int(round(skipped)),
+    }
+
+
 def buffer_stats(xy: np.ndarray, area: np.ndarray, F: np.ndarray, t: np.ndarray, hxy: np.ndarray, hids: list[str],
                  depth: float, radius: float = RADIUS_M, skip: np.ndarray | None = None) -> dict[str, Any]:
     """逐热点的圆内峰值积水量 + 并集 + 圆重叠。`skip` 是不参与的单元（评估剔除区内的，RD-A 才有）。"""

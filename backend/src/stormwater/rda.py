@@ -808,6 +808,29 @@ def _exclusion_rings() -> list[np.ndarray]:
     return rings
 
 
+@lru_cache(maxsize=4)
+def _exclusion_mask(key: str) -> np.ndarray:
+    """各单元是否落在评估剔除区内（整张网一次，热点圆内积水量与单热点过程共用）。"""
+    from . import hotspot_buffer as hb
+
+    c = _cells(key)
+    return hb.points_in_polygons(c["xy"][:, 0], c["xy"][:, 1], _exclusion_rings())
+
+
+def hotspot_circle_series(key: str, hotspot_id: str, depth: float = 0.15) -> dict:
+    """某个客户热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（扣评估剔除区；口径同 `hotspot_buffer`，曲线峰值 = 清单里的圆内峰值积水量）。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    f = next((x for x in hotspots()["features"] if x["properties"]["hotspot_id"] == hotspot_id), None)
+    if f is None:
+        raise RdaError("找不到这个热点")
+    hx, hy = _lonlat_to_utm40(np.array([f["geometry"]["coordinates"][0]]), np.array([f["geometry"]["coordinates"][1]]))
+    c = _cells(key)
+    return {"id": hotspot_id, "state": key,
+            **hb.circle_series(c["xy"], c["area"], c["frames"], c["t_h"], (float(hx[0]), float(hy[0])), depth, skip=_exclusion_mask(key))}
+
+
 @lru_cache(maxsize=32)
 def hotspot_buffer(key: str, depth: float = 0.15) -> dict:
     """客户热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元），及各热点圆的重叠；口径见 `hotspot_buffer.py`。
@@ -819,7 +842,7 @@ def hotspot_buffer(key: str, depth: float = 0.15) -> dict:
     hs = hotspots()["features"]
     hx, hy = _lonlat_to_utm40(np.array([f["geometry"]["coordinates"][0] for f in hs]),
                               np.array([f["geometry"]["coordinates"][1] for f in hs]))
-    skip = hb.points_in_polygons(c["xy"][:, 0], c["xy"][:, 1], _exclusion_rings())
+    skip = _exclusion_mask(key)
     out = hb.buffer_stats(c["xy"], c["area"], c["frames"], c["t_h"], np.stack([hx, hy], 1),
                           [f["properties"]["hotspot_id"] for f in hs], depth, skip=skip)
     out["state"] = key

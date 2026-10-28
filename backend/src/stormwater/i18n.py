@@ -409,6 +409,7 @@ EN: dict[str, str] = {
     "这个任务不是多态成果，没有方案效果可比": "This run has no scheme states to compare",
     "这份成果没有这个方案态": "This run has no such scenario state",
     "找不到这个积水点（态或阈值变了？）": "Ponding point not found (state or thresholds changed?)",
+    "找不到这个热点": "Hotspot not found",
     "没有拟建调蓄池数据": "No proposed pond data",
 }
 

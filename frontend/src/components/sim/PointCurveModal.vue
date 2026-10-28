@@ -13,6 +13,8 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   rainMin: { type: Number, default: null },   // 降雨历时（min），给了就画雨停线
+  kind: { type: String, default: 'point' },   // point = 模型算出的积水点；hotspot = 用户关注的积水点（客户热点，200 m 圆内）
+  subtitle: { type: String, default: '' },    // 热点的片区 / 位置，帮着认是哪一个
 })
 const emit = defineEmits(['close'])
 
@@ -95,10 +97,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <div class="pcm" role="dialog" aria-modal="true" :aria-label="t('sim.pointCurve.title', { id })" @click.self="emit('close')">
       <div class="pcm-box">
         <header class="pcm-head">
-          <b>{{ t('sim.pointCurve.title', { id: id.replace('SIM-', '') }) }}</b>
+          <b>{{ kind === 'hotspot' ? t('sim.pointCurve.titleHot', { id }) : t('sim.pointCurve.title', { id: id.replace('SIM-', '') }) }}</b>
           <button class="pcm-x" :aria-label="t('sim.pointCurve.close')" @click="emit('close')">×</button>
         </header>
 
+        <p v-if="subtitle" class="pcm-subtitle">{{ subtitle }}</p>
         <p v-if="loading" class="pcm-msg">{{ t('sim.pointCurve.loading') }}</p>
         <p v-else-if="error" class="pcm-msg err">{{ error }}</p>
         <template v-else-if="series && chart">
@@ -125,7 +128,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <text :x="PAD.l + PW / 2" :y="HT - 6" text-anchor="middle" class="pcm-tx">{{ t('sim.detail.volAxisX') }}</text>
             <text :transform="`translate(14 ${PAD.t + PH / 2}) rotate(-90)`" text-anchor="middle" class="pcm-tx">{{ t(metric.label) }}（{{ metric.unit }}）</text>
           </svg>
-          <p class="pcm-note">{{ t('sim.pointCurve.note', { d: Number(series.depth_threshold_m).toFixed(2), n: series.n_cells }) }}</p>
+          <p class="pcm-note">{{ kind === 'hotspot'
+            ? t('sim.pointCurve.noteHot', { r: series.radius_m, d: Number(series.depth_threshold_m).toFixed(2), n: series.n_cells })
+            : t('sim.pointCurve.note', { d: Number(series.depth_threshold_m).toFixed(2), n: series.n_cells }) }}</p>
         </template>
         <p v-else class="pcm-msg">{{ t('sim.pointCurve.empty') }}</p>
       </div>
@@ -140,6 +145,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .pcm-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
 .pcm-x { background: none; border: 0; color: var(--muted, rgba(255, 255, 255, 0.5)); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .pcm-x:hover { color: var(--fg, #fff); }
+.pcm-subtitle { margin: 2px 0 0; color: var(--muted, rgba(255, 255, 255, 0.5)); font-size: 12px; }
 .pcm-msg { color: var(--muted, rgba(255, 255, 255, 0.5)); padding: 28px 0; text-align: center; margin: 0; }
 .pcm-msg.err { color: var(--red, #d9434b); }
 .pcm-seg { display: inline-flex; gap: 2px; margin-top: 10px; background: var(--card-2, #212327); border-radius: 6px; padding: 2px; }

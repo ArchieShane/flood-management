@@ -16,7 +16,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { cancelSimulation, fetchPondingPointSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
+import { cancelSimulation, fetchHotspotCircleSeries, fetchPondingPointSeries, fetchRdaHotspotCircleSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import ResultMap from '../components/sim/ResultMap.vue'
 import RunCompare from '../components/sim/RunCompare.vue'
@@ -109,16 +109,26 @@ const simPoints = computed(() => (isRda.value ? (rda.ponding.value?.points || []
 })) : pts.enabled.value ? pts.mapPoints.value : null))
 const simSelected = computed(() => (isRda.value ? rda.selPoint.value : pts.enabled.value ? pts.selPoint.value : null))
 watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immediate: true })
-/* ---- 点一个积水点弹出它的积水趋势（逐帧积水量 / 面积 / 最大水深）。
-   RD-A 按清单里这个点的经纬度取，全市按编号取；阈值用当前清单生效的那一套，曲线峰值才与列表一致。 ---- */
-const curve = ref(null)   // { id, loading, error, series }
+/* ---- 点一个积水点弹出它的积水趋势（逐帧积水量 / 面积 / 最大水深）。两种点：
+   · point：模型算出的积水点。RD-A 按清单里这个点的经纬度取，全市按编号取；阈值用当前清单生效的那一套，曲线峰值才与列表一致。
+   · hotspot：用户关注的积水点（客户热点）。取它 200 m 圆内的逐帧过程，阈值用「圆内峰值积水量」那一栏正在用的，峰值与那一栏一致。
+   原来的地图弹窗、热点表、积水点详情卡片都照旧，趋势是在它们之上多弹一个框。 ---- */
+const curve = ref(null)   // { id, kind, subtitle, loading, error, series }
 let curveSeq = 0
-async function openCurve(id) {
+const hotInfo = id => {
+  const p = (hotspots.value?.points || []).find(x => x.id === id)
+  return p ? [p.district, p.criticality, p.location].filter(Boolean).join(' · ') : ''
+}
+async function openCurve(id, kind = 'point') {
   const my = ++curveSeq
-  curve.value = { id, loading: true, error: '', series: null }
+  curve.value = { id, kind, subtitle: kind === 'hotspot' ? hotInfo(id) : '', loading: true, error: '', series: null }
   try {
     let s
-    if (isRda.value) {
+    if (kind === 'hotspot') {
+      s = isRda.value
+        ? await fetchRdaHotspotCircleSeries(rdaState.value, id, rda.buf.bp.value)
+        : await fetchHotspotCircleSeries(run.value.id, stateKey.value, id, pts.buf.bp.value)
+    } else if (isRda.value) {
       const p = (rda.ponding.value?.points || []).find(x => x.id === id)
       if (!p) throw new Error(t('sim.pointCurve.empty'))
       const { depth, area, dur } = rda.pp.value
@@ -136,10 +146,11 @@ async function openCurve(id) {
 }
 const closeCurve = () => { curveSeq++; curve.value = null }
 watch([() => props.id, stateKey], closeCurve)
-/** 面板里点行 / 点热点旁的积水点标签：地图飞过去；点的是积水点就再弹趋势 */
+/** 面板里点行：地图飞过去（热点就飞到它并开原来的弹窗）；点的是积水点 / 关注积水点就再弹趋势 */
 function onLocate(e) {
-  mapRef.value?.flyToPoint(e.lat, e.lon)
-  if (e.kind === 'point' && e.id) openCurve(e.id)
+  if (e.kind === 'hotspot' && e.id) mapRef.value?.focusHotspot(e.id)
+  else if (e.lat != null && e.lon != null) mapRef.value?.flyToPoint(e.lat, e.lon)
+  if ((e.kind === 'point' || e.kind === 'hotspot') && e.id) openCurve(e.id, e.kind)
 }
 function onSimPoint(id) {
   openCurve(id)
@@ -333,7 +344,7 @@ async function cancel() {
       <ResultMap ref="mapRef" :key="`${run.id}|${stateKey || ''}`" :run-id="run.id" :state="stateKey"
                  :l2-ponds="l2View && !states && l2?.ponds?.length ? l2.ponds : null"
                  :l2-note="isRda ? '' : planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
-                 :no-overflow="hideOverflow" :no-ledger="hideOverflow" :no-pond-points="pts.enabled.value" :sim-points="simPoints" :sim-selected="simSelected" @simpoint="onSimPoint"
+                 :no-overflow="hideOverflow" :no-ledger="hideOverflow" :no-pond-points="pts.enabled.value" :sim-points="simPoints" :sim-selected="simSelected" @simpoint="onSimPoint" @hotspotpick="openCurve($event, 'hotspot')"
                  @meta="layerMeta = $event" @ponding="onPonding" @active="pondActive = $event" @now="mapNow = $event" @hotspots="hotspots = $event" />
       <RunCompare v-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
@@ -356,7 +367,7 @@ async function cancel() {
       <PondingPointsPanel :pts="pts" @locate="onLocate" />
     </section>
 
-    <PointCurveModal v-if="curve" :id="curve.id" :series="curve.series" :loading="curve.loading" :error="curve.error"
+    <PointCurveModal v-if="curve" :id="curve.id" :kind="curve.kind" :subtitle="curve.subtitle" :series="curve.series" :loading="curve.loading" :error="curve.error"
                      :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" @close="closeCurve" />
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">
