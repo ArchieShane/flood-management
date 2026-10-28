@@ -3,7 +3,7 @@
    积水点阈值 → 覆盖的客户热点（热点覆盖率 / 各状态并排 / 口径 / 圆内积水量与占比 / 热点表）→ 积水点列表与详情卡片。
    两边的数据层名字一致（`useRda()` / `usePondingPoints()`），传进来的 `rda`；全市多出的只有：网格说明、不在计算域内的热点、
    热点和积水点很多时的搜索 / 分页。点行时往外抛 `locate`，由外面的地图去飞；本组件不碰地图。 */
-import { computed, ref, unref } from 'vue'
+import { computed, ref, unref, watch } from 'vue'
 
 import { DEPTH_CHOICES } from '../../composables/useRda'
 import { tr, trj } from '../../i18n/rda'
@@ -22,8 +22,26 @@ const at = h => (h == null ? '' : `@ ${Number(h).toFixed(2)} h`)
 const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
 const outside = computed(() => unref(R.outsideDomain) || [])
 const gridNote = computed(() => unref(R.gridNote) || '')
-/** 积水点列表：全市有 shownPoints（默认前 100 片），RD-A 没有就是全部 */
-const listPoints = computed(() => (R.shownPoints || R.visiblePoints).value)
+/** 积水点列表：按最大水深降序，默认只出前 10 条，点「更多」展开其余。
+    全市一份清单上千片，一次全展开页面会卡，所以超过 300 条时「更多」每次再出 100 条；300 条以内一次出完。 */
+const PAGE = 10
+const BIG = 300
+const BIG_STEP = 100
+const shown = ref(PAGE)
+const sortedPoints = computed(() => [...R.visiblePoints.value].sort((a, b) => (b.hmax_m ?? -Infinity) - (a.hmax_m ?? -Infinity)))
+const listPoints = computed(() => sortedPoints.value.slice(0, shown.value))
+const restN = computed(() => Math.max(0, sortedPoints.value.length - shown.value))
+function morePoints() {
+  const total = sortedPoints.value.length
+  shown.value = total <= BIG ? total : Math.min(total, shown.value + BIG_STEP)
+}
+// 换态 / 换阈值 / 换筛选后清单是新数组：回到前 10 条
+watch(() => R.visiblePoints.value, () => { shown.value = PAGE })
+// 在地图上点了排在后面的点：展开到它为止，详情卡片和列表里的高亮对得上
+watch(() => R.selPoint.value, id => {
+  const i = id ? sortedPoints.value.findIndex(p => p.id === id) : -1
+  if (i >= shown.value) shown.value = i + 1
+})
 
 /** 热点表：RD-A 只有 11 行，全部列出；全市 470 行，加搜索并分批显示 */
 const hotQ = ref('')
@@ -258,7 +276,7 @@ defineExpose({ pickPoint })
         </span>
       </div>
       <label class="small"><input v-model="rda.nearOnly.value" type="checkbox" /> {{ tr('只看客户热点 200 m 内') }}</label>
-      <p class="muted small">{{ tr('编号 SIM-态-序号是模型算出的积水点，不是客户热点；按峰值积水量降序，只在同一状态、同一阈值内有效。') }}</p>
+      <p class="muted small">{{ tr('编号 SIM-态-序号是模型算出的积水点，不是客户热点（序号按峰值积水量排）；列表按最大水深降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。', { n: PAGE }) }}</p>
       <div v-if="rda.selectedPoint.value" class="card">
         <h4>
           {{ rda.selectedPoint.value.id }}
@@ -330,10 +348,9 @@ defineExpose({ pickPoint })
           </tr>
         </tbody>
       </table>
-      <p v-if="rda.shownPoints && rda.visiblePoints.value.length > 100" class="small">
-        <a href="#" @click.prevent="rda.showAll.value = !rda.showAll.value">
-          {{ rda.showAll.value ? tr('只看前 {n} 片', { n: 100 }) : tr('显示全部 {n} 片', { n: rda.visiblePoints.value.length }) }}
-        </a>
+      <p v-if="restN > 0 || shown > PAGE" class="small more">
+        <button v-if="restN > 0" class="go" @click="morePoints">{{ tr('更多（还有 {n} 条）', { n: restN }) }}</button>
+        <a v-if="shown > PAGE" href="#" @click.prevent="shown = PAGE">{{ tr('收起，只看前 {n} 条', { n: PAGE }) }}</a>
       </p>
     </div>
 </template>
