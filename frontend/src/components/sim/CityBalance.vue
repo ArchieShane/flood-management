@@ -10,7 +10,7 @@ defineProps({
   drain: { type: Number, required: true },   // 这一档可以排 m³
   left: { type: Number, required: true },    // 排完剩余 m³
 })
-const wan = v => (Number(v) / 1e4).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const m3 = v => fmtInt(Math.round(Number(v)))
 </script>
 
 <template>
@@ -19,20 +19,20 @@ const wan = v => (Number(v) / 1e4).toLocaleString('en-US', { minimumFractionDigi
     <div class="cb-row">
       <div>
         <span>{{ t('sim.balance.need') }}</span>
-        <b>{{ wan(need) }}</b>
-        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(need)) }} m³</small>
+        <b>{{ m3(need) }}</b>
+        <small>m³</small>
       </div>
       <i>→</i>
       <div class="drain">
         <span>{{ t('sim.balance.drain') }}</span>
-        <b>{{ wan(drain) }}</b>
-        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(drain)) }} m³</small>
+        <b>{{ m3(drain) }}</b>
+        <small>m³</small>
       </div>
       <i>→</i>
       <div>
         <span>{{ t('sim.balance.left') }}</span>
-        <b>{{ wan(left) }}</b>
-        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(left)) }} m³</small>
+        <b>{{ m3(left) }}</b>
+        <small>m³</small>
       </div>
     </div>
   </section>
@@ -44,7 +44,7 @@ const wan = v => (Number(v) / 1e4).toLocaleString('en-US', { minimumFractionDigi
 .cb-row { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 6px; align-items: center; }
 .cb-row > div { display: flex; flex-direction: column; min-width: 0; }
 .cb-row span { font-size: 11.5px; color: var(--muted, #9aa0a6); }
-.cb-row b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cb-row b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cb-row small { font-size: 11px; color: var(--muted, #9aa0a6); font-variant-numeric: tabular-nums; }
 .cb-row .drain b { color: var(--blue-lt, #6aa6ff); }
 .cb-row i { font-style: normal; color: var(--muted, #9aa0a6); }
