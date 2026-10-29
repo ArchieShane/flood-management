@@ -192,6 +192,7 @@ const plainRows = computed(() => {
 const rows = computed(() => (props.states ? stateRows.value : props.run.has_l2 ? cityRows.value : plainRows.value))
 
 const dimLabel = x => {
+  if (x.k === 'volume' && volGe.value && !props.now) return t('sim.levels.dim.volumeSurf')   // 已有「总积水量（≥ 15 cm）」，这行改叫地表积水量，免得重名
   if (!props.now) return t(x.k === 'area' && rows.value[0].peak ? 'sim.levels.dim.areaPeak' : `sim.levels.dim.${x.k}`)
   if (x.k === 'storage') return t('sim.levels.dim.storage')
   const k = x.k === 'area' ? (props.now.area_basis === 'triangle' ? 'areaTri' : 'areaCell') : x.k
@@ -285,7 +286,7 @@ const notes = computed(() => {
   }
   if (props.states && perf.value) {
     if (!props.now) out.push({ text: t(props.noOverflow ? 'sim.levels.noteStateNoOvf' : 'sim.levels.noteState', { w: Math.round(perf.value.common_end_minutes / 6) / 10 }) })
-    if (!props.now && hasVolume(stateRows.value)) out.push({ text: t('sim.levels.noteVolume') })
+    if (!props.now && hasVolume(stateRows.value)) out.push({ text: t(volGe.value ? 'sim.levels.noteVolumeSurf' : 'sim.levels.noteVolume') })
     if (volGe.value) out.push({ text: t('sim.levels.noteVolGe', { cm: Math.round(volGe.value.threshold_m * 100) }) })
     if (!props.now && !perf.value.network.comparable) out.push({ text: t('sim.levels.notComparable'), warn: true })
     const same = stateRows.value?.find(r => r.sameAs)
