@@ -100,9 +100,9 @@ const mobileDevices = s => {
     const x = lp(s)[key]
     rows.push({ k: label, type: t(`sim.equip.dev.${label}`), n: t('sim.equip.dev.nPump', { n: fmtInt(x.count_needed) }),
       spec: t('sim.equip.dev.mobileSpec', { q: n2(x.unit_flow_m3s), h: asMobile.value.pump_head_m }),
-      cap: t('sim.equip.dev.mobileCap', { tq: n1(x.count_needed * x.unit_flow_m3s), e: x.existing_available, gap: x.additional_needed > 0 ? t('sim.equip.gap', { g: fmtInt(x.additional_needed) }) : '',
+      cap: t('sim.equip.dev.mobileCap', { tq: n1(x.count_needed * x.unit_flow_m3s), e: x.existing_available,
         mw: n1(x.power_total_mw_assumed) }),
-      warn: x.additional_needed > 0 })
+    })
   }
   if (s.cranes?.count) {
     rows.push({ k: 'crane', type: t('sim.equip.dev.crane'), n: t('sim.equip.dev.nPump', { n: s.cranes.count }),
@@ -111,8 +111,8 @@ const mobileDevices = s => {
   return rows
 }
 
-/** 「中型泵（1.47 m³/s）需 46 台（缺 4）」：缺口为 0 就不写缺 */
-const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_needed) }) + (x.additional_needed > 0 ? t('sim.equip.gap', { g: fmtInt(x.additional_needed) }) : '')
+/** 「装水用中型泵（1.47 m³/s）需 46 台」 */
+const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_needed) })
 </script>
 
 <template>
@@ -159,12 +159,12 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
             <div class="eq-h"><b>{{ t('sim.equip.headMobile', { h: s.drain_time_h }) }}</b><em>{{ t('sim.equip.flowPump', { q: n1(s.loading_pumps.flow_required_m3s) }) }}</em></div>
             <div>{{ t('sim.equip.volumes', { b: wan(s.volume_by_tankers_m3) }) }}</div>
             <div>{{ t('sim.equip.tankers', { n: fmtInt(s.tankers.count), c: s.tankers.capacity_m3_each, t: s.tankers.trips_each }) }}</div>
-            <div :class="{ warn: lp(s).mobile_median.additional_needed > 0 }">{{ pumpText('median', lp(s).mobile_median, asMobile.loading_pump_units_m3s.mobile_median) }}</div>
-            <div :class="{ warn: lp(s).mobile_large.additional_needed > 0 }">{{ pumpText('large', lp(s).mobile_large, asMobile.loading_pump_units_m3s.mobile_large) }}</div>
+            <div>{{ pumpText('median', lp(s).mobile_median, asMobile.loading_pump_units_m3s.mobile_median) }}</div>
+            <div>{{ pumpText('large', lp(s).mobile_large, asMobile.loading_pump_units_m3s.mobile_large) }}</div>
             <template v-if="open === s.id">
               <table class="tbl eq-dev">
                 <thead><tr><th>{{ t('sim.equip.dev.type') }}</th><th>{{ t('sim.equip.dev.count') }}</th><th>{{ t('sim.equip.dev.spec') }}</th><th>{{ t('sim.equip.dev.cap') }}</th></tr></thead>
-                <tbody><tr v-for="r in mobileDevices(s)" :key="r.k" :class="{ warn: r.warn }"><td>{{ r.type }}</td><td>{{ r.n }}</td><td>{{ r.spec }}</td><td>{{ r.cap }}</td></tr></tbody>
+                <tbody><tr v-for="r in mobileDevices(s)" :key="r.k"><td>{{ r.type }}</td><td>{{ r.n }}</td><td>{{ r.spec }}</td><td>{{ r.cap }}</td></tr></tbody>
               </table>
               <p class="muted small">{{ t('sim.equip.dev.altNote') }}</p>
             </template>
