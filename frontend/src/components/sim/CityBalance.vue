@@ -1,0 +1,51 @@
+<script setup>
+/* 全市某一档的水量账：需要排的总积水量 → 这一档可以排多少 → 排完还剩多少（水深 ≥ 15 cm 的部分）。
+   L2 / L2 sugg / L3 右侧各放一块，上一档的「排完剩余」就是下一档「需要排的总积水量」。纯展示，数字由调用方给（m³）。 */
+import { t } from '../../i18n'
+import { fmtInt } from '../../utils/sim'
+
+defineProps({
+  title: { type: String, default: '' },
+  need: { type: Number, required: true },    // 需要排的总积水量 m³
+  drain: { type: Number, required: true },   // 这一档可以排 m³
+  left: { type: Number, required: true },    // 排完剩余 m³
+})
+const wan = v => (Number(v) / 1e4).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+</script>
+
+<template>
+  <section class="cb">
+    <h4>{{ title }}</h4>
+    <div class="cb-row">
+      <div>
+        <span>{{ t('sim.balance.need') }}</span>
+        <b>{{ wan(need) }}</b>
+        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(need)) }} m³</small>
+      </div>
+      <i>→</i>
+      <div class="drain">
+        <span>{{ t('sim.balance.drain') }}</span>
+        <b>{{ wan(drain) }}</b>
+        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(drain)) }} m³</small>
+      </div>
+      <i>→</i>
+      <div>
+        <span>{{ t('sim.balance.left') }}</span>
+        <b>{{ wan(left) }}</b>
+        <small>{{ t('sim.equip.wan') }} · {{ fmtInt(Math.round(left)) }} m³</small>
+      </div>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.cb { background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; }
+.cb h4 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--fg-2, #c4c7cc); }
+.cb-row { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 6px; align-items: center; }
+.cb-row > div { display: flex; flex-direction: column; min-width: 0; }
+.cb-row span { font-size: 11.5px; color: var(--muted, #9aa0a6); }
+.cb-row b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cb-row small { font-size: 11px; color: var(--muted, #9aa0a6); font-variant-numeric: tabular-nums; }
+.cb-row .drain b { color: var(--blue-lt, #6aa6ff); }
+.cb-row i { font-style: normal; color: var(--muted, #9aa0a6); }
+</style>

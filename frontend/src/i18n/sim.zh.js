@@ -683,6 +683,7 @@ export default {
     tipNear: '最近的井 {id} {d} m（井口 {rim} m）',
     tipSto: '最近蓄水节点 {id} {d} m（最高满 {pct}%）',
   },
+  balance: { need: '需要排的总积水量', drain: '可以排', left: '排完剩余', l2: 'L2', fixed: 'L2 sugg', mobile: 'L3' },
   equip: {
     title: '应对设备配置',
     sub: '全市 {rain}，L2 之后地表仍积着的水（只算水深 ≥ {th} m 的部分，取 60 帧里的最大值），按 45 : 20 分给两档：固定设施承担 {pf}，罐车（配装水泵和起重机）承担 {pm}。',

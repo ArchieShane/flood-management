@@ -7,6 +7,7 @@
 import { computed, ref, watch } from 'vue'
 
 import { t } from '../../i18n'
+import CityBalance from './CityBalance.vue'
 import { fmtInt } from '../../utils/sim'
 import '../../styles/rda.css'
 
@@ -25,18 +26,14 @@ const pct = v => `${Math.round(Number(v) * 100)}%`
 const inp = computed(() => props.data?.fixed.inputs || {})
 const share = v => `${n1(Number(v) / Number(inp.value.remaining_ponding_after_L2_m3) * 100)}%`
 /* L1 不排水，L2 排掉约 35%（用户给的比例）：总积水量 = L2 后剩余积水 ÷ 65%（页面上不标反推） */
-const L2_SHARE = 0.35
-const budget = computed(() => {
+/* 水量账：这一档需要排的 → 可以排的 → 排完剩余。L2 sugg 承接 L2 排完剩下的，L3 承接 L2 sugg 排完剩下的 */
+const balance = computed(() => {
   const i = inp.value
   const rem = i.remaining_ponding_after_L2_m3
-  const all = rem / (1 - L2_SHARE)
-  return [
-    ['all', all, '100%'],
-    ['l2', all - rem, pct(L2_SHARE)],
-    ['retained', rem, pct(1 - L2_SHARE)],
-    ['fixed', i.volume_fixed_m3, share(i.volume_fixed_m3)],
-    ['mobile', i.volume_mobile_m3, share(i.volume_mobile_m3)],
-  ]
+  const afterFixed = rem - i.volume_fixed_m3
+  return props.tab === 'fixed'
+    ? { need: rem, drain: i.volume_fixed_m3, left: afterFixed }
+    : { need: afterFixed, drain: i.volume_mobile_m3, left: Math.max(0, afterFixed - i.volume_mobile_m3) }
 })
 
 const asFixed = computed(() => props.data?.fixed.assumptions || {})
@@ -127,12 +124,7 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
       <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel, th: inp.threshold_depth_m, pf: share(inp.volume_fixed_m3), pm: share(inp.volume_mobile_m3) }) }}</p>
       <p class="warn small">{{ t('sim.equip.caveat') }}</p>
 
-      <div class="kpis">
-        <div v-for="[k, v, p] in budget" :key="k" :class="{ cur: k === (tab === 'fixed' ? 'fixed' : 'mobile') }">
-          <b>{{ wan(v) }}</b>
-          <span>{{ t(`sim.equip.budget.${k}`) }}{{ p ? ` · ${p}` : '' }}（{{ t('sim.equip.wan') }}）</span>
-        </div>
-      </div>
+      <CityBalance :title="t(`sim.balance.${tab}`)" :need="balance.need" :drain="balance.drain" :left="balance.left" />
 
       <template v-if="tab === 'fixed'">
         <p class="muted small">{{ t('sim.equip.fixedNote', { n: asFixed.fixed_pump.pumps_per_station, b: fixedRows[0].pump_stations.standby_pumps_per_station, q: asFixed.fixed_pump.unit_flow_m3s }) }}</p>
