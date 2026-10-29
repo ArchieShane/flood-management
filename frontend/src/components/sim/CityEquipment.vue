@@ -38,7 +38,9 @@ const balance = computed(() => {
 })
 
 const asFixed = computed(() => props.data?.fixed.assumptions || {})
+const EXTERNAL_SHARE = 0.3   // L2 sugg 只留外排 30% 这一组（用户定），文件里另有 100% / 50% / 0% 不显示
 const fixedRows = computed(() => (props.data?.fixed.scenarios || [])
+  .filter(s => s.external_share === EXTERNAL_SHARE)
   .slice().sort((a, b) => a.drain_time_h - b.drain_time_h || b.external_share - a.external_share))
 const asMobile = computed(() => props.data?.mobile.assumptions || {})
 const lp = s => s.loading_pumps.options   // 装水泵：中型 / 大型二选一
