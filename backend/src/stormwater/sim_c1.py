@@ -641,6 +641,24 @@ def _in_region(x: float, y: float, region: dict[str, Any]) -> bool:
     return False
 
 
+def ledger_adm_points() -> list[dict[str, Any]]:
+    """台账全部 ADM 积水点（不分区域），坐标缺失的跳过；全市任务补「域外」点用。"""
+    ledger = DATA_ROOT / "processed" / "hotspots_845.csv"
+    if not ledger.is_file():
+        return []
+    out = []
+    with ledger.open(encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            try:
+                lat, lon = round(float(r["lat"]), 6), round(float(r["lon"]), 6)
+            except (TypeError, ValueError):
+                continue
+            if (_adm(r["uid"]) or "").startswith("ADM-"):
+                out.append({"id": _adm(r["uid"]), "district": r["area"], "location": r["location"],
+                            "criticality": r.get("criticality"), "lat": lat, "lon": lon})
+    return out
+
+
 def region_ledger_points(region: dict[str, Any]) -> list[dict[str, Any]]:
     """片区汇水区内台账登记的全部积水点（只取 ADM，与 `_ledger_points` 同口径）。
     「交付的积水点」只是统计表列出的那几个；这里给整片区的台账点，让页面能把两层分开看。

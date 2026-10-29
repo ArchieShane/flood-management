@@ -758,6 +758,12 @@ function hotPopup(p) {
   const n = (x, d = 2) => (x == null ? '—' : Number(x).toFixed(d))
   const c = st.catchment || {}
   const nr = st.near_200m || {}
+  if (p.outside) {
+    // 台账里有、但不在二维计算域内：没有仿真结果，只给位置
+    return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}${p.criticality ? ` · ${esc(p.criticality)}` : ''}<br>` +
+      `<span style="opacity:.75">${esc(p.location || '')}</span><br>` +
+      `<span style="opacity:.75">${t('sim.hotspots.outside')}</span><br>${fmtLatLon(p)}`
+  }
   if (!st.catchment) {
     // 没有汇水区统计（全市交付）：面积 / 积水量取离热点 200 m 内单元的统计
     return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}${p.criticality ? ` · ${esc(p.criticality)}` : ''}<br>` +
@@ -808,7 +814,7 @@ function drawHot() {
         zIndexOffset: 3000,
       })
     m.bindPopup(() => hotPopup(p), { className: 'rm-pop', minWidth: 220, maxWidth: 300, offset: [0, -6] })
-    m.on('click', () => { hotActive.value = p.id; emit('hotspotpick', p.id) })   // 弹窗照开，另抛出去让详情页弹圆内积水趋势
+    m.on('click', () => { hotActive.value = p.id; if (!p.outside) emit('hotspotpick', p.id) })   // 域外点没有圆内曲线； 弹窗照开，另抛出去让详情页弹圆内积水趋势
     m.addTo(hotLayer)
     hotMarkers.set(p.id, m)
   }

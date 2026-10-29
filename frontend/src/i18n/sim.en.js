@@ -628,6 +628,7 @@ export default {
     a30Near: 'Area ≥ 0.30 m within 200 m',
     volNear: 'Peak ponded volume within 200 m',
     deepestAt: 'deepest at',
+    outside: 'Outside the 2D model domain — no simulation result',
     loc: 'Location',
     coord: 'Lat, lon',
     at: 'Time of peak',

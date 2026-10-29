@@ -347,6 +347,11 @@ def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     from . import sim_c1
 
     hot["ledger_points"] = sim_c1.region_ledger_points(hot.get("region_catchment") or {})
+    if hot.get("schema") == "flood_management.city_hotspots.v1":
+        # 全市：台账 ADM 506 个里落在二维计算域外的也列出来（没有仿真结果，outside=true），关注积水点总数对上台账
+        have = {sim_c1._adm(p["id"]) for p in hot["points"]}
+        hot["points"] = list(hot["points"]) + [{**p, "stats": {}, "outside": True} for p in sim_c1.ledger_adm_points()
+                                               if sim_c1._adm(p["id"]) not in have]
     return hot
 
 

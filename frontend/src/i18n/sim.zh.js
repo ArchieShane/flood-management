@@ -629,6 +629,7 @@ export default {
     a30Near: '200 m 内 ≥0.30 m 面积',
     volNear: '200 m 内最大积水量',
     deepestAt: '最深出现在',
+    outside: '不在二维计算域内，没有仿真结果',
     loc: '位置',
     coord: '经纬度',
     at: '出现时刻',
