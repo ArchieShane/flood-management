@@ -35,7 +35,9 @@ export function usePondingPoints(runId, stateKey, { onError } = {}) {
 
   const buf = useHotspotBuffer([runId, stateKey, meta],
     d => (enabled.value && meta.value && stateKey.value ? fetchHotspotBuffer(runId.value, stateKey.value, d) : null), { onError })
-  const hotspotCoverage = computed(() => (meta.value && ponding.value ? coverOfResponse(ponding.value, meta.value.hotspots) : null))
+  /** 热点总清单 = 域内交付的 + 台账里不在计算域内的（没有仿真结果，恒为未覆盖），合起来是台账 ADM 506 个 */
+  const allHotspots = m => [...m.hotspots, ...(m.outside_hotspots || [])]
+  const hotspotCoverage = computed(() => (meta.value && ponding.value ? coverOfResponse(ponding.value, allHotspots(meta.value)) : null))
   const { hotQuery, hotFilter, hotLimit, hotspotList, hotspotCounts } = useHotspotList(hotspotCoverage, stateKey)
 
   const query = () => {
@@ -65,7 +67,7 @@ export function usePondingPoints(runId, stateKey, { onError } = {}) {
     const my = ++seq
     if (!enabled.value || !meta.value) { coverageAll.value = null; return }
     const { depth, area, dur } = pp.value
-    const hs = meta.value.hotspots
+    const hs = allHotspots(meta.value)
     const out = await Promise.all(meta.value.states.map(async k => {
       try {
         const c = coverOfResponse(await fetchPondingPoints(runId.value, k, depth, area, dur), hs)

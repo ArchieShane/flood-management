@@ -291,9 +291,16 @@ def check_params(depth: float, min_area: float, min_dur: float) -> None:
 
 def meta(pdir: Path) -> dict[str, Any]:
     s = _source(str(pdir))
+    from . import sim_c1
+
+    out_ids = {_norm_adm(a) for a in s["outside_domain"]}
+    # 域外热点也给出位置（没有仿真结果，页面按「未覆盖」计入热点总数，台账 ADM 506 个）
+    outside = [{"id": p["id"], "area": p["district"], "location": p["location"], "criticality": p["criticality"],
+                "lat": p["lat"], "lon": p["lon"], "stats": {}, "outside": True}
+               for p in sim_c1.ledger_adm_points() if _norm_adm(p["id"]) in out_ids]
     return {"states": list(s["states"]), "n_tri": s["n_tri"], "default": DEFAULT,
             "hotspots": [{k: h.get(k) for k in ("id", "area", "location", "criticality", "lat", "lon", "stats")} for h in s["hotspots"]],
-            "outside_domain": s["outside_domain"]}
+            "outside_domain": s["outside_domain"], "outside_hotspots": outside}
 
 
 @lru_cache(maxsize=32)

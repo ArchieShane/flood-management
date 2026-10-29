@@ -233,8 +233,8 @@ const EN = {
     'This run uses a 100 m grid: one cell is about 2,000 m², only two or three cells fall within 200 m of a hotspot, and the terrain is averaged to 100 m so small depressions are smoothed away. Point counts and positions are therefore not comparable with RD-A (15 m). The default minimum patch is at least 1 cell; there is no assessment exclusion zone.',
   '连片面积 0 = 至少 1 个单元；默认 0.15 m、持续 0.5 h。': 'Patch area 0 = at least 1 cell; default 0.15 m, 0.5 h.',
   '回到默认': 'Back to default',
-  '热点按交付的 {n} 个算（台账 ADM 506 个里落在二维计算域内的）；另 {m} 个不在计算域内，不进分母。':
-    'Hotspots are the {n} delivered (those of the 506 ADM ledger points inside the 2D computational domain); {m} more lie outside the domain and are not in the denominator.',
+  '热点共 {n} 个（台账 ADM 全部）；其中 {m} 个不在二维计算域内，没有仿真结果，一律算未覆盖。':
+    '{n} hotspots in all (every ADM ledger point); {m} of them lie outside the 2D computational domain, have no simulation result and always count as uncovered.',
   '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量。上面的小表是各状态在同一套阈值下的并排对比。':
     'Hotspot coverage = covered hotspots ÷ total hotspots; volume coverage = ponded volume within 200 m of a hotspot ÷ all ponded volume. The small table above compares the states under the same thresholds.',
   '热点到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离取热点到片内最近单元形心（100 m 网格下比较粗）。':

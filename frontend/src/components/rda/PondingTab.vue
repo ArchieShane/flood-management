@@ -124,7 +124,7 @@ defineExpose({ pickPoint })
           {{ tr('已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。', { n: rda.hotspotCoverage.value.nExcluded }) }}
         </p>
         <p v-if="outside.length" class="muted small">
-          {{ tr('热点按交付的 {n} 个算（台账 ADM 506 个里落在二维计算域内的）；另 {m} 个不在计算域内，不进分母。', { n: rda.hotspotCoverage.value.total, m: outside.length }) }}
+          {{ tr('热点共 {n} 个（台账 ADM 全部）；其中 {m} 个不在二维计算域内，没有仿真结果，一律算未覆盖。', { n: rda.hotspotCoverage.value.total, m: outside.length }) }}
         </p>
         <details class="logic">
           <summary>{{ tr('覆盖是怎么算的（口径）') }}</summary>
@@ -195,7 +195,7 @@ defineExpose({ pickPoint })
           </template>
           <p v-if="bufData" class="small">
             {{ tr('{a} / {n} 个热点的圆内有水（水深 ≥ {d} m）；{b} 个热点的圆与别的热点的圆重叠，共 {k} 对。', {
-              a: bufData.n_with_water, n: bufData.n_hotspots, d: Number(bufData.depth_m).toFixed(2), b: bufData.n_overlap_hotspots, k: bufData.n_pairs }) }}
+              a: bufData.n_with_water, n: bufData.n_hotspots + outside.length, d: Number(bufData.depth_m).toFixed(2), b: bufData.n_overlap_hotspots, k: bufData.n_pairs }) }}
             <template v-if="bufData.n_excluded_cells">{{ tr('评估剔除区内 {n} 个单元不计。', { n: bufData.n_excluded_cells }) }}</template>
           </p>
           <template v-if="bufData && bufData.pairs.length">

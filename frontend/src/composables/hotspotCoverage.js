@@ -34,7 +34,7 @@ export function coverOf(points, hotspots, bins, nExcluded = 0) {
     rows, covered, total: rows.length, rate: rows.length ? (covered / rows.length) * 100 : null,
     nPoints: points.length, nInside: inside.length, ptsPct: points.length ? (inside.length / points.length) * 100 : null,
     volTotal: total, volInside: vol(inside), insidePct: total ? (vol(inside) / total) * 100 : null,
-    nExcluded, bins: bins || binsFromNear(points, hotspots),
+    nExcluded, bins: bins ? { ...bins, total: hotspots.length } : binsFromNear(points, hotspots),   // 总数以传入的热点清单为准（全市含域外热点）
   }
 }
 
