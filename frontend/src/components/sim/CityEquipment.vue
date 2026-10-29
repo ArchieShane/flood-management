@@ -38,8 +38,9 @@ const asFixed = computed(() => props.data?.fixed.assumptions || {})
 const fixedRows = computed(() => (props.data?.fixed.scenarios || [])
   .slice().sort((a, b) => a.drain_time_h - b.drain_time_h || b.external_share - a.external_share))
 const asMobile = computed(() => props.data?.mobile.assumptions || {})
+const lp = s => s.loading_pumps.options   // 装水泵：中型 / 大型二选一
 const mobileRows = computed(() => (props.data?.mobile.scenarios || [])
-  .slice().sort((a, b) => b.drain_time_h - a.drain_time_h || a.tanker_share - b.tanker_share))
+  .slice().sort((a, b) => b.drain_time_h - a.drain_time_h))
 
 const outfallText = s => {
   const o = s.external_discharge.outfall_pipe
@@ -91,23 +92,21 @@ const fixedDevices = s => {
 }
 const mobileDevices = s => {
   const rows = []
+  const tk = s.tankers
+  rows.push({ k: 'tanker', type: t('sim.equip.dev.tanker'), n: t('sim.equip.dev.nTanker', { n: fmtInt(tk.count) }),
+    spec: t('sim.equip.dev.tankerSpec', { c: tk.capacity_m3_each, r: tk.round_trip_h, t: tk.trips_each }),
+    cap: t('sim.equip.dev.tankerCap', { v: fmtInt(tk.capacity_m3_each * tk.trips_each), tv: wan(s.volume_by_tankers_m3) }) })
   for (const [key, label] of [['mobile_median', 'median'], ['mobile_large', 'large']]) {
-    const x = s.mobile_pumps[key]
+    const x = lp(s)[key]
     rows.push({ k: label, type: t(`sim.equip.dev.${label}`), n: t('sim.equip.dev.nPump', { n: fmtInt(x.count_needed) }),
       spec: t('sim.equip.dev.mobileSpec', { q: n2(x.unit_flow_m3s), h: asMobile.value.pump_head_m }),
       cap: t('sim.equip.dev.mobileCap', { tq: n1(x.count_needed * x.unit_flow_m3s), e: x.existing_available, gap: x.additional_needed > 0 ? t('sim.equip.gap', { g: fmtInt(x.additional_needed) }) : '',
-        h: n1(x.hose_total_km_assumed), hl: asMobile.value.hose_length_each_m, mw: n1(x.power_total_mw_assumed), dn: x.discharge_line_dn_mm, dv: x.discharge_line_velocity_ms }),
+        mw: n1(x.power_total_mw_assumed) }),
       warn: x.additional_needed > 0 })
-  }
-  const tk = s.tankers
-  if (tk.count) {
-    rows.push({ k: 'tanker', type: t('sim.equip.dev.tanker'), n: t('sim.equip.dev.nTanker', { n: fmtInt(tk.count) }),
-      spec: t('sim.equip.dev.tankerSpec', { c: tk.capacity_m3_each, r: tk.round_trip_h, t: tk.trips_each }),
-      cap: t('sim.equip.dev.tankerCap', { v: fmtInt(tk.capacity_m3_each * tk.trips_each), tv: wan(s.volume_by_tankers_m3) }) })
   }
   if (s.cranes?.count) {
     rows.push({ k: 'crane', type: t('sim.equip.dev.crane'), n: t('sim.equip.dev.nPump', { n: s.cranes.count }),
-      spec: t('sim.equip.dev.craneSpec', { n: asMobile.value.crane_per_mobile_pumps }), cap: t('sim.equip.dev.craneCap') })
+      spec: t('sim.equip.dev.craneSpec', { n: asMobile.value.crane_per_loading_pumps }), cap: t('sim.equip.dev.craneCap') })
   }
   return rows
 }
@@ -157,11 +156,11 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
         <p class="muted small">{{ t('sim.equip.dev.hint') }}</p>
         <div class="eq-list">
           <div v-for="s in mobileRows" :key="s.id" class="eq-item" :class="{ open: open === s.id }" role="button" tabindex="0" @click="toggle(s.id)" @keydown.enter="toggle(s.id)">
-            <div class="eq-h"><b>{{ t('sim.equip.headMobile', { h: s.drain_time_h, e: pct(s.tanker_share) }) }}</b><em>{{ t('sim.equip.flowPump', { q: n1(s.mobile_pump_flow_required_m3s) }) }}</em></div>
-            <div>{{ t('sim.equip.volumes', { a: wan(s.volume_by_mobile_pumps_m3), b: wan(s.volume_by_tankers_m3) }) }}</div>
-            <div :class="{ warn: s.mobile_pumps.mobile_median.additional_needed > 0 }">{{ pumpText('median', s.mobile_pumps.mobile_median, asMobile.mobile_pump_units_m3s.mobile_median) }}</div>
-            <div :class="{ warn: s.mobile_pumps.mobile_large.additional_needed > 0 }">{{ pumpText('large', s.mobile_pumps.mobile_large, asMobile.mobile_pump_units_m3s.mobile_large) }}</div>
-            <div>{{ s.tankers.count ? t('sim.equip.tankers', { n: fmtInt(s.tankers.count), t: s.tankers.trips_each }) : t('sim.equip.noTankers') }}</div>
+            <div class="eq-h"><b>{{ t('sim.equip.headMobile', { h: s.drain_time_h }) }}</b><em>{{ t('sim.equip.flowPump', { q: n1(s.loading_pumps.flow_required_m3s) }) }}</em></div>
+            <div>{{ t('sim.equip.volumes', { b: wan(s.volume_by_tankers_m3) }) }}</div>
+            <div>{{ t('sim.equip.tankers', { n: fmtInt(s.tankers.count), c: s.tankers.capacity_m3_each, t: s.tankers.trips_each }) }}</div>
+            <div :class="{ warn: lp(s).mobile_median.additional_needed > 0 }">{{ pumpText('median', lp(s).mobile_median, asMobile.loading_pump_units_m3s.mobile_median) }}</div>
+            <div :class="{ warn: lp(s).mobile_large.additional_needed > 0 }">{{ pumpText('large', lp(s).mobile_large, asMobile.loading_pump_units_m3s.mobile_large) }}</div>
             <template v-if="open === s.id">
               <table class="tbl eq-dev">
                 <thead><tr><th>{{ t('sim.equip.dev.type') }}</th><th>{{ t('sim.equip.dev.count') }}</th><th>{{ t('sim.equip.dev.spec') }}</th><th>{{ t('sim.equip.dev.cap') }}</th></tr></thead>
@@ -172,7 +171,7 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
           </div>
         </div>
         <p class="muted small">{{ t('sim.equip.mobileAssume', {
-          c: asMobile.tanker.capacity_m3, r: asMobile.tanker.round_trip_h, hl: asMobile.hose_length_each_m, h: asMobile.pump_head_m, e: asMobile.pump_efficiency }) }}</p>
+          c: asMobile.tanker.capacity_m3, r: asMobile.tanker.round_trip_h, h: asMobile.pump_head_m, e: asMobile.pump_efficiency }) }}</p>
       </template>
     </div>
   </section>

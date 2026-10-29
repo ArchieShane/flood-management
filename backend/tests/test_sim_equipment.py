@@ -64,7 +64,7 @@ def test_real_files_pass_through_numbers_only(root):
         assert set(out[k]) == {"generated", "inputs", "assumptions", "scenarios"}
         assert "title" not in out[k] and "scope" not in out[k]
         assert "notes" in out[k]["assumptions"]   # 假设里自带的 notes 随 assumptions 过来，页面不显示它
-    assert len(out["fixed"]["scenarios"]) == 16 and len(out["mobile"]["scenarios"]) == 12
+    assert len(out["fixed"]["scenarios"]) == 16 and len(out["mobile"]["scenarios"]) == 4
     i = out["fixed"]["inputs"]
     # 两档水量 = L2 后剩余积水 × 45/65、20/65，合起来就是剩余积水（差 1 m³ 内是取整）
     rem = i["remaining_ponding_after_L2_m3"]
@@ -78,3 +78,7 @@ def test_real_files_pass_through_numbers_only(root):
         assert p["count"] * p["station_flow_m3s"] >= s["total_flow_required_m3s"] - 0.5
         assert p["duty_pumps_total"] == p["count"] * p["duty_pumps_per_station"]
         assert p["pumps_total"] == p["duty_pumps_total"] + p["standby_pumps_total"]
+    # 移动一档：全部由罐车运走，罐车运水量 = 这一档的水量
+    for s in out["mobile"]["scenarios"]:
+        assert s["volume_by_tankers_m3"] == s["volume_to_remove_m3"]
+        assert s["tankers"]["count"] * s["tankers"]["capacity_m3_each"] * s["tankers"]["trips_each"] >= s["volume_to_remove_m3"]
