@@ -1,7 +1,7 @@
 <script setup>
-/* 全市应对设备配置：L2 之后地表留下的水，按两档分担 ——
-   · L2 sugg = 第一档，固定设施（泵站 / 压力管 / 排海管 / 调蓄塘），承担全市总水量的 45%；
-   · L3 = 第二档，移动泵与罐车，承担 20%。
+/* 全市应对设备配置：L2 之后地表还积着的水（水深 ≥ 0.15 m 的部分），按 45 : 20 分给两档 ——
+   · L2 sugg = 第一档，固定设施（泵站 / 压力管 / 排海管 / 调蓄塘），约占 69.2%；
+   · L3 = 第二档，移动泵与罐车，约占 30.8%。
    数据由详情页取 `/equipment`（成果目录里的两份设备配置文件）：只有全市总量和数量，没有位置、也不是逐台设备；
    管长、扬程、效率是占位值。放在详情页右栏（420 px 宽），一个场景一张小卡，不画宽表。 */
 import { computed, ref, watch } from 'vue'
@@ -21,15 +21,16 @@ const n2 = v => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximum
 const wan = v => (v == null ? '—' : n1(Number(v) / 1e4))
 const pct = v => `${Math.round(Number(v) * 100)}%`
 
+/* 基数是「L2 之后剩余积水」（水深 ≥ 阈值的部分），两档按 45 : 20 分它，占比用 两档水量 ÷ 剩余积水 算 */
 const inp = computed(() => props.data?.fixed.inputs || {})
+const share = v => `${n1(Number(v) / Number(inp.value.remaining_ponding_after_L2_m3) * 100)}%`
 const budget = computed(() => {
   const i = inp.value
   return [
-    ['total', i.total_water_m3, ''],
-    ['retained', i.L2_surface_retained_5h_m3, `${n1(i.L2_surface_retained_pct_of_total)}%`],
-    ['fixed', i.volume_fixed_m3, pct(i.share_fixed)],
-    ['mobile', i.volume_mobile_m3, pct(i.share_mobile)],
-    ['unassigned', i.unassigned_m3, ''],
+    ['total', i.total_net_rain_m3, ''],
+    ['retained', i.remaining_ponding_after_L2_m3, ''],
+    ['fixed', i.volume_fixed_m3, share(i.volume_fixed_m3)],
+    ['mobile', i.volume_mobile_m3, share(i.volume_mobile_m3)],
   ]
 })
 
@@ -104,8 +105,8 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
 <template>
   <section v-if="data" class="sim-card ro sd-equip">
     <div class="rda-ui">
-      <h3>{{ tab === 'fixed' ? t('sim.equip.tabFixed', { p: pct(inp.share_fixed) }) : t('sim.equip.tabMobile', { p: pct(inp.share_mobile) }) }}</h3>
-      <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel }) }}</p>
+      <h3>{{ tab === 'fixed' ? t('sim.equip.tabFixed', { p: share(inp.volume_fixed_m3) }) : t('sim.equip.tabMobile', { p: share(inp.volume_mobile_m3) }) }}</h3>
+      <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel, th: inp.threshold_depth_m, pf: share(inp.volume_fixed_m3), pm: share(inp.volume_mobile_m3) }) }}</p>
       <p class="warn small">{{ t('sim.equip.caveat') }}</p>
 
       <div class="kpis">

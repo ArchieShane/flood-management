@@ -370,10 +370,10 @@ async function cancel() {
             {{ stateCode(s.key) }}
           </button>
           <template v-if="equip">
-            <button role="tab" :class="{ on: eqTab === 'fixed' }" :aria-selected="eqTab === 'fixed'" :title="t('sim.equip.tabFixed', { p: `${Math.round(equip.fixed.inputs.share_fixed * 100)}%` })" @click="pickEq('fixed')">
+            <button role="tab" :class="{ on: eqTab === 'fixed' }" :aria-selected="eqTab === 'fixed'" :title="t('sim.equip.tabFixed', { p: `${(equip.fixed.inputs.volume_fixed_m3 / equip.fixed.inputs.remaining_ponding_after_L2_m3 * 100).toFixed(1)}%` })" @click="pickEq('fixed')">
               {{ t('sim.equip.btnFixed') }}
             </button>
-            <button role="tab" :class="{ on: eqTab === 'mobile' }" :aria-selected="eqTab === 'mobile'" :title="t('sim.equip.tabMobile', { p: `${Math.round(equip.fixed.inputs.share_mobile * 100)}%` })" @click="pickEq('mobile')">
+            <button role="tab" :class="{ on: eqTab === 'mobile' }" :aria-selected="eqTab === 'mobile'" :title="t('sim.equip.tabMobile', { p: `${(equip.fixed.inputs.volume_mobile_m3 / equip.fixed.inputs.remaining_ponding_after_L2_m3 * 100).toFixed(1)}%` })" @click="pickEq('mobile')">
               {{ t('sim.equip.btnMobile') }}
             </button>
           </template>
