@@ -24,11 +24,16 @@ const pct = v => `${Math.round(Number(v) * 100)}%`
 /* 基数是「L2 之后剩余积水」（水深 ≥ 阈值的部分），两档按 45 : 20 分它，占比用 两档水量 ÷ 剩余积水 算 */
 const inp = computed(() => props.data?.fixed.inputs || {})
 const share = v => `${n1(Number(v) / Number(inp.value.remaining_ponding_after_L2_m3) * 100)}%`
+/* L1 不排水，L2 排掉约 35%（用户给的比例）：总积水量 = L2 后剩余积水 ÷ 65%，是反推的，不是模型直接算的 */
+const L2_SHARE = 0.35
 const budget = computed(() => {
   const i = inp.value
+  const rem = i.remaining_ponding_after_L2_m3
+  const all = rem / (1 - L2_SHARE)
   return [
-    ['total', i.total_net_rain_m3, ''],
-    ['retained', i.remaining_ponding_after_L2_m3, ''],
+    ['all', all, '100%'],
+    ['l2', all - rem, pct(L2_SHARE)],
+    ['retained', rem, pct(1 - L2_SHARE)],
     ['fixed', i.volume_fixed_m3, share(i.volume_fixed_m3)],
     ['mobile', i.volume_mobile_m3, share(i.volume_mobile_m3)],
   ]
@@ -121,6 +126,7 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
       <h3>{{ tab === 'fixed' ? t('sim.equip.tabFixed', { p: share(inp.volume_fixed_m3) }) : t('sim.equip.tabMobile', { p: share(inp.volume_mobile_m3) }) }}</h3>
       <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel, th: inp.threshold_depth_m, pf: share(inp.volume_fixed_m3), pm: share(inp.volume_mobile_m3) }) }}</p>
       <p class="warn small">{{ t('sim.equip.caveat') }}</p>
+      <p class="muted small">{{ t('sim.equip.derived') }}</p>
 
       <div class="kpis">
         <div v-for="[k, v, p] in budget" :key="k" :class="{ cur: k === (tab === 'fixed' ? 'fixed' : 'mobile') }">
