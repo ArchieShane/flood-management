@@ -9,6 +9,8 @@ defineProps({
   need: { type: Number, required: true },    // 需要排的总积水量 m³
   drain: { type: Number, required: true },   // 这一档可以排 m³
   left: { type: Number, required: true },    // 排完剩余 m³
+  total: { type: Number, required: true },   // 全市总积水量 m³（比例都是按它算的）
+  pct: { type: Number, required: true },     // 这一档占总积水量的比例（0.35 = 35%）
 })
 const m3 = v => fmtInt(Math.round(Number(v)))
 </script>
@@ -35,6 +37,8 @@ const m3 = v => fmtInt(Math.round(Number(v)))
         <small>m³</small>
       </div>
     </div>
+    <p class="cb-f">{{ t('sim.balance.fDrain', { total: m3(total), pct: Math.round(pct * 100) + '%', drain: m3(drain) }) }}</p>
+    <p class="cb-f">{{ t('sim.balance.fLeft', { need: m3(need), drain: m3(drain), left: m3(left) }) }}</p>
   </section>
 </template>
 
@@ -47,5 +51,6 @@ const m3 = v => fmtInt(Math.round(Number(v)))
 .cb-row b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cb-row small { font-size: 11px; color: var(--muted, #9aa0a6); font-variant-numeric: tabular-nums; }
 .cb-row .drain b { color: var(--blue-lt, #6aa6ff); }
+.cb-f { margin: 6px 0 0; font-size: 11.5px; color: var(--muted, #9aa0a6); font-variant-numeric: tabular-nums; }
 .cb-row i { font-style: normal; color: var(--muted, #9aa0a6); }
 </style>

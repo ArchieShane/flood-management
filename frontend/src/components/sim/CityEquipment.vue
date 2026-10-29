@@ -31,9 +31,10 @@ const balance = computed(() => {
   const i = inp.value
   const rem = i.remaining_ponding_after_L2_m3
   const afterFixed = rem - i.volume_fixed_m3
+  const total = rem / 0.65   // L2 排掉 35%，剩 65%（用户给的比例），总积水量 = 剩余 ÷ 65%
   return props.tab === 'fixed'
-    ? { need: rem, drain: i.volume_fixed_m3, left: afterFixed }
-    : { need: afterFixed, drain: i.volume_mobile_m3, left: Math.max(0, afterFixed - i.volume_mobile_m3) }
+    ? { need: rem, drain: i.volume_fixed_m3, left: afterFixed, total, pct: 0.45 }
+    : { need: afterFixed, drain: i.volume_mobile_m3, left: Math.max(0, afterFixed - i.volume_mobile_m3), total, pct: 0.2 }
 })
 
 const asFixed = computed(() => props.data?.fixed.assumptions || {})
@@ -124,7 +125,7 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
       <p class="muted small">{{ t('sim.equip.sub', { rain: rainLabel, th: inp.threshold_depth_m, pf: share(inp.volume_fixed_m3), pm: share(inp.volume_mobile_m3) }) }}</p>
       <p class="warn small">{{ t('sim.equip.caveat') }}</p>
 
-      <CityBalance :title="t(`sim.balance.${tab}`)" :need="balance.need" :drain="balance.drain" :left="balance.left" />
+      <CityBalance :title="t(`sim.balance.${tab}`)" :need="balance.need" :drain="balance.drain" :left="balance.left" :total="balance.total" :pct="balance.pct" />
 
       <template v-if="tab === 'fixed'">
         <p class="muted small">{{ t('sim.equip.fixedNote', { n: asFixed.fixed_pump.pumps_per_station, b: fixedRows[0].pump_stations.standby_pumps_per_station, q: asFixed.fixed_pump.unit_flow_m3s }) }}</p>

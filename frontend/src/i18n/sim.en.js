@@ -682,7 +682,7 @@ export default {
     tipNear: 'Nearest inlet {id} {d} m (rim {rim} m)',
     tipSto: 'Nearest storage node {id} {d} m (peak fill {pct}%)',
   },
-  balance: { need: 'Ponding to remove', drain: 'Can remove', left: 'Left after', l2: 'L2', fixed: 'L2 sugg', mobile: 'L3' },
+  balance: { need: 'Ponding to remove', drain: 'Can remove', left: 'Left after', fDrain: 'Can remove = {total} (total ponding) × {pct} = {drain} m³', fLeft: 'Left after = {need} − {drain} = {left} m³', l2: 'L2', fixed: 'L2 sugg', mobile: 'L3' },
   equip: {
     title: 'Response equipment plan',
     sub: 'City-wide, {rain}. The ponding still on the surface after L2 (only the part deeper than {th} m, maximum over 60 frames) is shared 45 : 20 by two tiers: fixed facilities take {pf}, tankers (with loading pumps and cranes) take {pm}.',

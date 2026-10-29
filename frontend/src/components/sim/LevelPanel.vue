@@ -260,7 +260,7 @@ const l2Balance = computed(() => {
   const cur = props.states.find(s => s.key === props.stateKey) || props.states[0]
   if (cur.defence_line_key !== 'line2_current') return null
   const left = geVolume('L2'), need = geVolume('L1')
-  return left == null || need == null ? null : { need, drain: need - left, left }
+  return left == null || need == null ? null : { need, drain: need - left, left, total: need, pct: L2_REMOVES }
 })
 const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow')) && !(props.noPondPoints && x.k === 'ponding')
 /** 总积水量：这份交付拿不出（没有逐帧水量序列）就整块不出，不放一个「—」占位 */
@@ -372,7 +372,7 @@ const top = computed(() => {
               @click="scope = k">{{ t(`sim.levels.scope.${k}`) }}</button>
     </div>
 
-    <CityBalance v-if="l2Balance" :title="t('sim.balance.l2')" :need="l2Balance.need" :drain="l2Balance.drain" :left="l2Balance.left" />
+    <CityBalance v-if="l2Balance" :title="t('sim.balance.l2')" :need="l2Balance.need" :drain="l2Balance.drain" :left="l2Balance.left" :total="l2Balance.total" :pct="l2Balance.pct" />
 
     <div v-for="x in dims" :key="x.k" class="ro-box lv">
       <div class="lv-head">
