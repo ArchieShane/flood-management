@@ -9,9 +9,11 @@ defineProps({
   need: { type: Number, required: true },    // 需要排的总积水量 m³
   drain: { type: Number, required: true },   // 这一档可以排 m³
   left: { type: Number, required: true },    // 排完剩余 m³
-  total: { type: Number, required: true },   // 全市总积水量 m³（比例都是按它算的）
-  pct: { type: Number, required: true },     // 这一档占总积水量的比例（0.35 = 35%）
+  total: { type: Number, required: true },   // 全市总积水量 m³（占比按它算）
 })
+/** 这一档占总积水量的百分比：可以排 ÷ 总积水量（35% / 45% / 20%，最多留 1 位小数） */
+const pctText = v => `${Number((Number(v) * 100).toFixed(1))}%`
+
 const m3 = v => fmtInt(Math.round(Number(v)))
 </script>
 
@@ -37,7 +39,7 @@ const m3 = v => fmtInt(Math.round(Number(v)))
         <small>m³</small>
       </div>
     </div>
-    <p class="cb-f">{{ t('sim.balance.fDrain', { total: m3(total), pct: Math.round(pct * 100) + '%', drain: m3(drain) }) }}</p>
+    <p class="cb-f">{{ t('sim.balance.fDrain', { total: m3(total), pct: pctText(drain / total), drain: m3(drain) }) }}</p>
     <p class="cb-f">{{ t('sim.balance.fLeft', { need: m3(need), drain: m3(drain), left: m3(left) }) }}</p>
   </section>
 </template>
