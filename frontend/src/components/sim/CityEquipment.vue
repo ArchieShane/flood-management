@@ -56,26 +56,36 @@ const toggle = id => { open.value = open.value === id ? null : id }
 watch(() => props.tab, () => { open.value = null })
 
 const fixedDevices = s => {
-  const st = s.pump_stations, pp = s.pressure_pipe, op = s.external_discharge.outfall_pipe, pd = s.ponds
+  const st = s.pump_stations, pp = s.pressure_pipe, ed = s.external_discharge, op = ed.outfall_pipe, pd = s.ponds
   const rows = [
     { k: 'station', type: t('sim.equip.dev.station'), n: t('sim.equip.dev.nStation', { n: st.count }),
-      spec: t('sim.equip.dev.stationSpec', { p: st.pumps_per_station, q: n2(st.station_flow_m3s) }), cap: t('sim.equip.dev.stationCap', { q: n1(st.count * st.station_flow_m3s) }) },
-    { k: 'pump', type: t('sim.equip.dev.pump'), n: t('sim.equip.dev.nPump', { n: st.pumps_total }),
+      spec: t('sim.equip.dev.stationSpec', { p: st.duty_pumps_per_station, b: st.standby_pumps_per_station, q: n2(st.station_flow_m3s) }), cap: t('sim.equip.dev.stationCap', { q: n1(st.count * st.station_flow_m3s) }) },
+    { k: 'pump', type: t('sim.equip.dev.pump'), n: t('sim.equip.dev.pumpN', { n: st.pumps_total, d: st.duty_pumps_total, b: st.standby_pumps_total }),
       spec: t('sim.equip.dev.pumpSpec', { q: n2(st.pump_unit_flow_m3s), h: asFixed.value.pump_head_m }),
-      cap: t('sim.equip.dev.pumpCap', { q: n1(st.pumps_total * st.pump_unit_flow_m3s), mw: n1(st.power_total_mw_assumed) }) },
+      cap: t('sim.equip.dev.pumpCap', { q: n1(st.duty_pumps_total * st.pump_unit_flow_m3s), mw: n1(st.power_total_mw_assumed) }) },
+    { k: 'generator', type: t('sim.equip.dev.generator'), n: t('sim.equip.dev.nSet', { n: st.mobile_generator_junction_boxes }),
+      spec: t('sim.equip.dev.generatorSpec'), cap: t('sim.equip.dev.generatorCap') },
     { k: 'pressure', type: t('sim.equip.dev.pressure'), n: t('sim.equip.dev.nPipe', { n: pp.count }),
-      spec: t('sim.equip.dev.pipeSpec', { d: pp.dn_mm, l: pp.length_each_m_assumed, v: pp.design_velocity_ms }),
+      spec: t('sim.equip.dev.pressureSpec', { d: pp.dn_mm, l: pp.length_each_m_assumed, v: pp.design_velocity_ms, m: pp.emergency_max_velocity_ms }),
       cap: t('sim.equip.dev.pressureCap', { q: n1(st.station_flow_m3s), km: n1(pp.total_length_km) }) },
   ]
   if (op.count) {
     rows.push({ k: 'outfall', type: t('sim.equip.dev.outfall'), n: t('sim.equip.dev.nPipe', { n: op.count }),
       spec: t('sim.equip.dev.pipeSpec', { d: op.dn_mm, l: op.length_each_m_assumed, v: asFixed.value.outfall_pipe.velocity_ms }),
       cap: t('sim.equip.dev.outfallCap', { q: n1(op.unit_flow_m3s), tq: n1(op.count * op.unit_flow_m3s), km: n1(op.total_length_km) }) })
+    rows.push({ k: 'outfallFit', type: t('sim.equip.dev.outfallFit'), n: t('sim.equip.dev.nSet', { n: ed.non_return_valve_chambers }),
+      spec: t('sim.equip.dev.outfallFitSpec', { l: ed.tailwater_design_level_m_NADD }),
+      cap: t('sim.equip.dev.outfallFitCap', { a: ed.non_return_valve_chambers, b: ed.trash_screens, c: ed.safety_grills }) })
   }
   if (pd.count) {
     rows.push({ k: 'pond', type: t('sim.equip.dev.pond'), n: t('sim.equip.dev.nPond', { n: pd.count }),
       spec: t('sim.equip.dev.pondSpec', { v: wan(pd.volume_each_m3), d: pd.depth_m, a: n1(pd.area_each_ha) }),
       cap: t('sim.equip.dev.pondCap', { tv: wan(pd.total_volume_m3), na: n1(pd.net_area_ha), g: n1(pd.area_with_slopes_roads_ha) }) })
+    rows.push({ k: 'spillway', type: t('sim.equip.dev.spillway'), n: t('sim.equip.dev.nSet', { n: pd.emergency_spillways }),
+      spec: t('sim.equip.dev.spillwaySpec'), cap: t('sim.equip.dev.spillwayCap') })
+    rows.push({ k: 'emptying', type: t('sim.equip.dev.emptying'), n: t('sim.equip.dev.nPump', { n: pd.emptying.pumps }),
+      spec: t('sim.equip.dev.emptyingSpec', { q: n2(pd.emptying.pump_unit_flow_m3s_assumed) }),
+      cap: t('sim.equip.dev.emptyingCap', { tq: n1(pd.emptying.flow_m3s), d: pd.emptying.within_days }) })
   }
   return rows
 }
@@ -86,7 +96,7 @@ const mobileDevices = s => {
     rows.push({ k: label, type: t(`sim.equip.dev.${label}`), n: t('sim.equip.dev.nPump', { n: fmtInt(x.count_needed) }),
       spec: t('sim.equip.dev.mobileSpec', { q: n2(x.unit_flow_m3s), h: asMobile.value.pump_head_m }),
       cap: t('sim.equip.dev.mobileCap', { tq: n1(x.count_needed * x.unit_flow_m3s), e: x.existing_available, gap: x.additional_needed > 0 ? t('sim.equip.gap', { g: fmtInt(x.additional_needed) }) : '',
-        h: n1(x.hose_total_km_assumed), hl: asMobile.value.hose_length_each_m, mw: n1(x.power_total_mw_assumed) }),
+        h: n1(x.hose_total_km_assumed), hl: asMobile.value.hose_length_each_m, mw: n1(x.power_total_mw_assumed), dn: x.discharge_line_dn_mm, dv: x.discharge_line_velocity_ms }),
       warn: x.additional_needed > 0 })
   }
   const tk = s.tankers
@@ -94,6 +104,10 @@ const mobileDevices = s => {
     rows.push({ k: 'tanker', type: t('sim.equip.dev.tanker'), n: t('sim.equip.dev.nTanker', { n: fmtInt(tk.count) }),
       spec: t('sim.equip.dev.tankerSpec', { c: tk.capacity_m3_each, r: tk.round_trip_h, t: tk.trips_each }),
       cap: t('sim.equip.dev.tankerCap', { v: fmtInt(tk.capacity_m3_each * tk.trips_each), tv: wan(s.volume_by_tankers_m3) }) })
+  }
+  if (s.cranes?.count) {
+    rows.push({ k: 'crane', type: t('sim.equip.dev.crane'), n: t('sim.equip.dev.nPump', { n: s.cranes.count }),
+      spec: t('sim.equip.dev.craneSpec', { n: asMobile.value.crane_per_mobile_pumps }), cap: t('sim.equip.dev.craneCap') })
   }
   return rows
 }
@@ -117,12 +131,12 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
       </div>
 
       <template v-if="tab === 'fixed'">
-        <p class="muted small">{{ t('sim.equip.fixedNote', { n: asFixed.fixed_pump.pumps_per_station, q: asFixed.fixed_pump.unit_flow_m3s }) }}</p>
+        <p class="muted small">{{ t('sim.equip.fixedNote', { n: asFixed.fixed_pump.pumps_per_station, b: fixedRows[0].pump_stations.standby_pumps_per_station, q: asFixed.fixed_pump.unit_flow_m3s }) }}</p>
         <p class="muted small">{{ t('sim.equip.dev.hint') }}</p>
         <div class="eq-list">
           <div v-for="s in fixedRows" :key="s.id" class="eq-item" :class="{ open: open === s.id }" role="button" tabindex="0" @click="toggle(s.id)" @keydown.enter="toggle(s.id)">
             <div class="eq-h"><b>{{ t('sim.equip.headFixed', { h: s.drain_time_h, e: pct(s.external_share) }) }}</b><em>{{ t('sim.equip.flow', { q: n1(s.total_flow_required_m3s) }) }}</em></div>
-            <div>{{ t('sim.equip.stations', { n: s.pump_stations.count, p: s.pump_stations.pumps_total }) }} · {{ t('sim.equip.pipe', { d: s.pressure_pipe.dn_mm, n: s.pressure_pipe.count, km: n1(s.pressure_pipe.total_length_km) }) }}</div>
+            <div>{{ t('sim.equip.stations', { n: s.pump_stations.count, p: s.pump_stations.duty_pumps_total, b: s.pump_stations.standby_pumps_total }) }} · {{ t('sim.equip.pipe', { d: s.pressure_pipe.dn_mm, n: s.pressure_pipe.count, km: n1(s.pressure_pipe.total_length_km) }) }}</div>
             <div>{{ outfallText(s) }}</div>
             <div>{{ pondText(s) }}</div>
             <table v-if="open === s.id" class="tbl eq-dev">
@@ -131,6 +145,7 @@ const pumpText = (key, x, q) => t(`sim.equip.${key}`, { q, n: fmtInt(x.count_nee
             </table>
           </div>
         </div>
+        <p class="muted small">{{ t('sim.equip.manual') }}</p>
         <p class="muted small">{{ t('sim.equip.fixedAssume', {
           od: asFixed.outfall_pipe.dn_mm, ov: asFixed.outfall_pipe.velocity_ms, pv: asFixed.pressure_pipe_velocity_ms,
           vol: wan(asFixed.pond.volume_m3), d: asFixed.pond.depth_m, f: asFixed.pond.freeboard_silt_factor, fp: asFixed.pond.footprint_factor,

@@ -1,6 +1,6 @@
 """全市应对设备配置（sim_results.equipment）：文件读法、缺文件 404、数字自洽。
 
-数据文件在 backend/data/261029（不进代码库），缺失时依赖真文件的用例 skip。
+数据文件在 backend/data/261029-2（不进代码库），缺失时依赖真文件的用例 skip。
 """
 import shutil
 from pathlib import Path
@@ -10,7 +10,7 @@ import pytest
 from stormwater import sim_results
 from stormwater import simulation as sim
 
-SRC = Path(sim_results.DATA_ROOT) / "261029"
+SRC = Path(sim_results.DATA_ROOT) / "261029-2"
 FILES = {
     "equipment_fixed.json": "ADM_100m_after_L2_tier1_fixed.json",
     "equipment_mobile.json": "ADM_100m_after_L2_tier2_mobile.json",
@@ -53,7 +53,7 @@ def test_unknown_run_404(root):
         sim_results.equipment(_Conn(None), 1)
 
 
-@pytest.mark.skipif(not all((SRC / f).is_file() for f in FILES.values()), reason="没有 261029 设备配置数据")
+@pytest.mark.skipif(not all((SRC / f).is_file() for f in FILES.values()), reason="没有 261029-2 设备配置数据")
 def test_real_files_pass_through_numbers_only(root):
     for dst, src in FILES.items():
         shutil.copy(SRC / src, root / dst)
@@ -64,7 +64,7 @@ def test_real_files_pass_through_numbers_only(root):
         assert set(out[k]) == {"generated", "inputs", "assumptions", "scenarios"}
         assert "title" not in out[k] and "scope" not in out[k]
         assert "notes" in out[k]["assumptions"]   # 假设里自带的 notes 随 assumptions 过来，页面不显示它
-    assert len(out["fixed"]["scenarios"]) == 12 and len(out["mobile"]["scenarios"]) == 12
+    assert len(out["fixed"]["scenarios"]) == 16 and len(out["mobile"]["scenarios"]) == 12
     i = out["fixed"]["inputs"]
     # 两档水量 = L2 后剩余积水 × 45/65、20/65，合起来就是剩余积水（差 1 m³ 内是取整）
     rem = i["remaining_ponding_after_L2_m3"]
@@ -76,4 +76,5 @@ def test_real_files_pass_through_numbers_only(root):
     for s in out["fixed"]["scenarios"]:
         p = s["pump_stations"]
         assert p["count"] * p["station_flow_m3s"] >= s["total_flow_required_m3s"] - 0.5
-        assert p["pumps_total"] == p["count"] * p["pumps_per_station"]
+        assert p["duty_pumps_total"] == p["count"] * p["duty_pumps_per_station"]
+        assert p["pumps_total"] == p["duty_pumps_total"] + p["standby_pumps_total"]
