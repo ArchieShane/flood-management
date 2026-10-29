@@ -245,13 +245,20 @@ const scopeRows = computed(() => stateCols.value?.map(c => {
 
 /** 水深 ≥ 阈值的积水量（全市 #1068 的应对设备配置用的口径，随 /equipment 来）：只在看全程、且有这一态的数时出 */
 const volGe = computed(() => (props.states && !props.now && props.volGe?.volume_m3 ? props.volGe : null))
+/** L1 不排水、L2 排掉约 35%（用户给的比例）：L2 取模型的剩余积水，L1 = L2 ÷ 65%，两态和应对设备配置页的总积水量同一个数 */
+const L2_REMOVES = 0.35
+const geVolume = k => {
+  const v = volGe.value?.volume_m3
+  if (!v) return null
+  return k === 'L1' && v.L2 != null ? v.L2 / (1 - L2_REMOVES) : v[k]
+}
 const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow')) && !(props.noPondPoints && x.k === 'ponding')
 /** 总积水量：这份交付拿不出（没有逐帧水量序列）就整块不出，不放一个「—」占位 */
 const hasVolume = rs => (rs || []).some(r => r.v.volume != null)
 const dims = computed(() => inScope.value
   ? build(SCOPE_SPEC.filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(scopeRows.value)), scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
   : build([PONDING, ...(volGe.value ? [SPEC_GE] : []), ...SPEC].filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(rows.value)),
-    volGe.value ? rows.value.map(r => ({ ...r, v: { ...r.v, volGe: volGe.value.volume_m3[r.key] ?? null } })) : rows.value,
+    volGe.value ? rows.value.map(r => ({ ...r, v: { ...r.v, volGe: geVolume(r.key) ?? null } })) : rows.value,
     x => (x.k === 'volGe' ? t('sim.levels.dim.volGe', { cm: Math.round(volGe.value.threshold_m * 100) }) : dimLabel(x))))
 
 /* ---------------- 标题、降雨情景与脚注 ---------------- */
