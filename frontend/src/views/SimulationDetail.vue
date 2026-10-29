@@ -414,7 +414,7 @@ async function cancel() {
       <RunCompare v-else-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
       <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="hideOverflow" :no-pond-points="pts.enabled.value"
-                  :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
+                  :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" :vol-ge="equip?.ponding_ge" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
     </div>
     <RunCompare v-else-if="run && compare" class="sd-cmp-solo" :run="run" @open="openLine" />
 

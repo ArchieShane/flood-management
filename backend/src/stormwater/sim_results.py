@@ -60,6 +60,7 @@ MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, N
 #: 全市应对设备配置（2026-10-28 交付）：放在成果目录根上的两个文件，第一档固定设施（L2 sugg，总水量 45%）、第二档移动泵与罐车（L3，20%）
 EQUIPMENT_FILES = {"fixed": "equipment_fixed.json", "mobile": "equipment_mobile.json"}
 #: 原文件里只留数字和协议值；英文标题 / 范围 / 备注由页面按中英文自己写，不透传
+PONDING_GE_FILE = "ponding_ge.json"
 _EQUIPMENT_KEEP = ("generated", "inputs", "assumptions", "scenarios")
 
 #: 多态交付（一个任务涵盖几种工况，如 Mussafah 四态）的清单文件，放在 `output_dir` 根上，见 `sim_sww.py`：
@@ -324,7 +325,13 @@ def equipment(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     paths = {k: root / f for k, f in EQUIPMENT_FILES.items()}
     if DATA_ROOT.resolve() not in root.parents or not all(p.is_file() for p in paths.values()):
         raise sim.SimulationError(404, NO_EQUIPMENT)
-    return {k: {f: _load(p)[f] for f in _EQUIPMENT_KEEP} for k, p in paths.items()}
+    out = {k: {f: _load(p)[f] for f in _EQUIPMENT_KEEP} for k, p in paths.items()}
+    # 各态「水深 ≥ 阈值」的积水量（sim_ponding_ge.py 离线算的），有就随设备配置一起给，页面的 L1 / L2 总览用
+    ge = root / PONDING_GE_FILE
+    if ge.is_file():
+        j = _load(ge)
+        out["ponding_ge"] = {"threshold_m": j["threshold_m"], "volume_m3": j["volume_m3"]}
+    return out
 
 
 def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:

@@ -32,6 +32,7 @@ const props = defineProps({
   ponding: { type: Object, default: null },    // 地图已取回的 /layers/ponding（多态时是当前态自己的）
   active: { type: Number, default: null },
   now: { type: Object, default: null },        // 地图时间过程下的本帧当前值（ResultMap 的 now）；null = 看全程
+  volGe: { type: Object, default: null },      // /equipment 的 ponding_ge：{ threshold_m, volume_m3: { 态 → m³ } }
   hotspots: { type: Object, default: null },   // /hotspots：交付自带的积水点（有的任务才有）；带 scopes 时右上出「口径」标签
 })
 const emit = defineEmits(['perf', 'focus'])
@@ -73,6 +74,7 @@ const SPEC = [
   { k: 'depth', u: 'm', better: 'lower', fmt: v => Number(v).toFixed(2) },
   { k: 'storage', u: 'm³', better: 'higher', fmt: v => fmtInt(Math.round(v)) },
 ]
+const SPEC_GE = { k: 'volGe', u: 'm³', better: 'lower', fmt: v => fmtInt(Math.round(v)) }   // 积水量（水深 ≥ 15 cm 的部分，峰值）
 const COLORS = ['var(--red)', 'var(--amber)', 'var(--blue-lt)']
 const lineName = k => t(`sim.detail.lineTab.${k}`)
 
@@ -241,12 +243,16 @@ const scopeRows = computed(() => stateCols.value?.map(c => {
   } }
 }) ?? null)
 
+/** 水深 ≥ 阈值的积水量（全市 #1068 的应对设备配置用的口径，随 /equipment 来）：只在看全程、且有这一态的数时出 */
+const volGe = computed(() => (props.states && !props.now && props.volGe?.volume_m3 ? props.volGe : null))
 const keepDim = x => !(props.noOverflow && (x.k === 'ponding' || x.k === 'overflow')) && !(props.noPondPoints && x.k === 'ponding')
 /** 总积水量：这份交付拿不出（没有逐帧水量序列）就整块不出，不放一个「—」占位 */
 const hasVolume = rs => (rs || []).some(r => r.v.volume != null)
 const dims = computed(() => inScope.value
   ? build(SCOPE_SPEC.filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(scopeRows.value)), scopeRows.value, x => t(`sim.levels.scopeDim.${x.k}`))
-  : build([PONDING, ...SPEC].filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(rows.value)), rows.value, dimLabel))
+  : build([PONDING, ...(volGe.value ? [SPEC_GE] : []), ...SPEC].filter(keepDim).filter(x => x.k !== 'volume' || hasVolume(rows.value)),
+    volGe.value ? rows.value.map(r => ({ ...r, v: { ...r.v, volGe: volGe.value.volume_m3[r.key] ?? null } })) : rows.value,
+    x => (x.k === 'volGe' ? t('sim.levels.dim.volGe', { cm: Math.round(volGe.value.threshold_m * 100) }) : dimLabel(x))))
 
 /* ---------------- 标题、降雨情景与脚注 ---------------- */
 const lineText = computed(() => (props.l2View && !props.states ? lineName('line2_current') : props.run.defence_line_label || ''))
@@ -273,6 +279,7 @@ const notes = computed(() => {
   if (props.states && perf.value) {
     if (!props.now) out.push({ text: t(props.noOverflow ? 'sim.levels.noteStateNoOvf' : 'sim.levels.noteState', { w: Math.round(perf.value.common_end_minutes / 6) / 10 }) })
     if (!props.now && hasVolume(stateRows.value)) out.push({ text: t('sim.levels.noteVolume') })
+    if (volGe.value) out.push({ text: t('sim.levels.noteVolGe', { cm: Math.round(volGe.value.threshold_m * 100) }) })
     if (!props.now && !perf.value.network.comparable) out.push({ text: t('sim.levels.notComparable'), warn: true })
     const same = stateRows.value?.find(r => r.sameAs)
     if (same) out.push({ text: t('sim.levels.sameAs', { s: same.key, as: same.sameAs }) })
