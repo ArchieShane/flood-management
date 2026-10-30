@@ -402,11 +402,15 @@ EN: dict[str, str] = {
     "这一态模型里没有储水设施": "This state has no storage facilities in its model",
     "这一态没有交付设施 GIS": "This state has no delivered facility GIS",
     "这个任务没有积水点": "This task has no hotspots",
+    "这个任务没有应对设备配置数据": "This task has no response-equipment data",
+    "这个任务没有模拟积水点": "This task has no simulated ponding points",
     "没有这一帧": "No such frame",
     "这份成果算不出溢水点": "Overflow points cannot be derived from this run's outputs",
     "这份成果拆不出残留积水的成因": "Residual ponding cannot be broken down for this run's outputs",
     "这个任务不是多态成果，没有方案效果可比": "This run has no scheme states to compare",
     "这份成果没有这个方案态": "This run has no such scenario state",
+    "找不到这个积水点（态或阈值变了？）": "Ponding point not found (state or thresholds changed?)",
+    "找不到这个热点": "Hotspot not found",
     "没有拟建调蓄池数据": "No proposed pond data",
 }
 
@@ -479,7 +483,7 @@ LABEL_EN: tuple[tuple[str, str], ...] = (
     ("汇水区（模型版：", "catchment (model version: "), ("Parsons 方案", "Parsons scheme"), ("规划方案", "Planned scheme"),
     ("已建成调蓄", "Built storage"), ("既有管网", "Existing network"), ("移动泵", "Mobile pumps"),
     ("加OP-02移动泵", "Plus OP-02 mobile pumps"), ("现状管网", "Existing network"), ("现状泵站", "existing pump stations"),
-    ("雨前预置泵", "Pre-placed pumps"), ("客户计划", "Client plan"), ("我们的方案", "Our scheme"),
+    ("雨前预置泵", "Pre-placed pumps"), ("客户计划", "Client plan"), ("我们的方案", "Our scheme"), ("推荐方案", "Recommended scheme"),
     ("现状", "Existing"), ("计算域", "computational domain"), ("）", ")"),
 )
 

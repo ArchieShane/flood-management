@@ -101,69 +101,6 @@ class TestSummary:
         assert s["count"] == 0 and s["by_mechanism"] == {}
 
 
-class TestEndpoint:
-    def test_shape(self, payload):
-        if not payload.get("available"):
-            pytest.skip("本机没有片区成果")
-        assert payload["type"] == "FeatureCollection"
-        assert payload["summary"]["count"] == len(payload["features"])
-        assert payload["run"]["run_id"] == RUN_META["run_id"]
-        assert payload["caveats"], "使用边界必须随成果一起发，页面要原样展示"
-
-    def test_english_keeps_protocol_values(self, client, payload):
-        """换语言只动展示串。`mechanism_key` / `run_id` / `status` 一个字都不许变。"""
-        if not payload.get("available"):
-            pytest.skip("本机没有片区成果")
-        en = client.get("/api/model-ponding?lang=en").json()
-        assert [f["properties"]["mechanism_key"] for f in en["features"]] == [
-            f["properties"]["mechanism_key"] for f in payload["features"]
-        ]
-        assert en["run"]["run_id"] == payload["run"]["run_id"]
-        assert en["run"]["status"] == payload["run"]["status"]
-        # 展示串确实翻了（不然这个测试等于没测）
-        assert en["run"]["criterion"] != payload["run"]["criterion"]
-        assert en["caveats"][0] != payload["caveats"][0]
-
-    def test_numbers_are_identical_across_languages(self, client, payload):
-        """翻译不碰一个数 —— 中英两份的逐片区指标必须逐字段相等。"""
-        if not payload.get("available"):
-            pytest.skip("本机没有片区成果")
-        en = client.get("/api/model-ponding?lang=en").json()
-        assert en["summary"] == payload["summary"]
-        drop = ("mechanism",)  # 唯一被翻的那一列
-        strip = lambda fs: [
-            {k: v for k, v in f["properties"].items() if k not in drop} for f in fs
-        ]
-        assert strip(en["features"]) == strip(payload["features"])
-
-    def test_does_not_leak_into_the_ledger(self, client):
-        """台账接口一点没变 —— 两套数据并列，谁也不该被对方污染。
-
-        ⚠ `mechanism_key` / `cluster_rank` 这两列现在**在 `HotspotRecord` 上**
-        （两套点共用同一个类型，才能走同一条计算链），故台账点也带这两个键 ——
-        但必须恒为 None。列在 ≠ 有值：有值就说明片区的数漏进台账了。
-        """
-        points = client.get("/api/hotspots").json()["points"]
-        assert points, "台账应当照常返回"
-        assert all(p["mechanism_key"] is None for p in points)
-        assert all(p["cluster_rank"] is None for p in points)
-        assert all(p["area_voronoi_ha"] is None for p in points)
-        # 片区特有的展示字段（积水指数等）不在台账接口里
-        assert all("ponding_score" not in p for p in points)
-        assert {p["source"] for p in points} == {"ADM", "AAM", "DRM"}
-
-    def test_missing_file_reports_unavailable(self, client, monkeypatch, tmp_path):
-        """「没有这份成果」≠「这场雨没积水」—— 必须答 available: false。"""
-        from stormwater import model_ponding
-
-        monkeypatch.setattr(model_ponding, "OUTPUT_GEOJSON", tmp_path / "nope.geojson")
-        body = client.get("/api/model-ponding").json()
-        assert body["available"] is False
-        assert body["features"] == []
-        # 没有成果时不该附一份凭空的 run 自述
-        assert "run" not in body
-
-
 class TestFixtureIntegrity:
     """成果文件本身的两条底线 —— 它是离线产出的，进仓库后没人再动过。"""
 

@@ -18,6 +18,10 @@
     GET    /api/simulations/{id}/layers/max-depth       逐格最大水深 GeoJSON（几何只在这里给一次）
     GET    /api/simulations/{id}/layers/frames/{index}  第 index 帧的「格子号 → 水深」紧凑数组
     GET    /api/simulations/{id}/layers/timeline        播放用的逐帧当前值（同刻积水面积、最深、累计溢水量、已出现溢水点）
+    GET    /api/simulations/{id}/ponding-points/{编号}/series  单个模拟积水点逐帧的积水量 / 面积 / 最大水深
+    GET    /api/simulations/{id}/ponding-points[/meta]  模拟积水点（按阈值现算，口径同 RD-A；?depth=&min_area=&min_dur=），`city_ponding.py`
+    GET    /api/simulations/{id}/hotspot-buffer/{热点}/series  单个热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深
+    GET    /api/simulations/{id}/hotspot-buffer热点 200 m 圆内的地表峰值积水量 + 圆重叠（?depth=），`hotspot_buffer.py`
     GET    /api/simulations/{id}/hotspots               交付自带的积水点（热点）：坐标 / 汇水区 / 逐态统计，没有 404
     GET    /api/simulations/{id}/layers/ponding         按 docs/analysis_ponding 算法重算的易积水片区
     GET    /api/simulations/{id}/layers/inflow          模型实际用的总入流过程线（逐井 [INFLOWS] 累加）
@@ -39,9 +43,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import sim_l2, sim_results
+from .. import city_ponding, sim_l2, sim_results
 from .. import simulation as sim
 from ..i18n import resolve_lang, tr
+
+NO_POINTS = "这个任务没有模拟积水点"
 
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
@@ -347,12 +353,109 @@ def get_ponding(run_id: int, state: str | None = State, lang: str = Lang):
     return body
 
 
+@router.get("/{run_id}/ponding-points/meta")
+def get_ponding_points_meta(run_id: int, lang: str = Lang):
+    """模拟积水点的元信息：可选的态、默认阈值、热点清单与不在计算域内的热点（`city_ponding.py`；没有 404）。"""
+    pdir = _points_dir(run_id, lang)
+    return city_ponding.meta(pdir)
+
+
+@router.get("/{run_id}/ponding-points")
+def get_ponding_points(
+    run_id: int,
+    state: str | None = State,
+    depth: float = Query(0.15),
+    min_area: float = Query(100.0),
+    min_dur: float = Query(0.5),
+    lang: str = Lang,
+):
+    """按阈值从二维结果现算的模拟积水点（口径同 RD-A：三角网共边连片）：清单带最大水深 / 面积 / 积水量及其时刻、
+    200 m 内客户热点。默认态取态清单的 default。没有 `points/` 的任务 404。"""
+    pdir = _points_dir(run_id, lang)
+    key = state or city_ponding.meta(pdir)["states"][0]
+    try:
+        body = city_ponding.ponding_points(str(pdir), key, round(depth, 3), round(min_area, 1), round(min_dur, 2))
+    except city_ponding.PointsError as exc:
+        raise HTTPException(status_code=404, detail=tr(str(exc), lang)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return dict(body)
+
+
+@router.get("/{run_id}/ponding-points/{point_id}/series")
+def get_ponding_point_series(
+    run_id: int,
+    point_id: str,
+    state: str | None = State,
+    depth: float = Query(0.15),
+    min_area: float = Query(100.0),
+    min_dur: float = Query(0.5),
+    lang: str = Lang,
+):
+    """某个模拟积水点逐帧的积水量 / ≥depth 面积 / 最大水深；阈值要与清单一致（编号只在同一态、同一阈值内有效）。"""
+    pdir = _points_dir(run_id, lang)
+    key = state or city_ponding.meta(pdir)["states"][0]
+    try:
+        return city_ponding.point_series(str(pdir), key, point_id, round(depth, 3), round(min_area, 1), round(min_dur, 2))
+    except city_ponding.PointsError as exc:
+        raise HTTPException(status_code=404, detail=tr(str(exc), lang)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/hotspot-buffer/{hotspot_id}/series")
+def get_hotspot_circle_series(run_id: int, hotspot_id: str, state: str | None = State, depth: float = Query(0.15), lang: str = Lang):
+    """某个交付热点 200 m 圆内逐帧的积水量 / ≥depth 面积 / 圆内最大水深；没有 `points/` 的任务 404。"""
+    pdir = _points_dir(run_id, lang)
+    key = state or city_ponding.meta(pdir)["states"][0]
+    try:
+        return city_ponding.hotspot_circle_series(str(pdir), key, hotspot_id, round(depth, 3))
+    except city_ponding.PointsError as exc:
+        raise HTTPException(status_code=404, detail=tr(str(exc), lang)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/hotspot-buffer")
+def get_hotspot_buffer(run_id: int, state: str | None = State, depth: float = Query(0.15), lang: str = Lang):
+    """交付的客户热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元）+ 各热点圆的重叠；没有 `points/` 的任务 404。"""
+    pdir = _points_dir(run_id, lang)
+    key = state or city_ponding.meta(pdir)["states"][0]
+    try:
+        return dict(city_ponding.hotspot_buffer(str(pdir), key, round(depth, 3)))
+    except city_ponding.PointsError as exc:
+        raise HTTPException(status_code=404, detail=tr(str(exc), lang)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _points_dir(run_id: int, lang: str):
+    with sim.connect() as conn:
+        row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=tr(sim.NOT_FOUND, lang))
+    pdir = city_ponding.points_dir(row["output_dir"])
+    if pdir is None:
+        raise HTTPException(status_code=404, detail=tr(NO_POINTS, lang))
+    return pdir
+
+
 @router.get("/{run_id}/hotspots")
 def get_hotspots(run_id: int, lang: str = Lang):
     """交付自带的积水点（如 C1 的 8 个热点）：坐标、汇水区、逐态统计；不带 ?state=，一次给全部态。"""
     try:
         with sim.connect() as conn:
             return sim_results.hotspots(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
+@router.get("/{run_id}/equipment")
+def get_equipment(run_id: int, lang: str = Lang):
+    """全市应对设备配置：第一档固定设施（L2 sugg，45%）与第二档移动泵 + 罐车（L3，20%）的各场景数量；没有这两个文件的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.equipment(conn, run_id)
     except sim.SimulationError as exc:
         raise _fail(exc, lang) from exc
 

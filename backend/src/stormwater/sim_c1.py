@@ -98,7 +98,7 @@ _RDA_NOTE = {
     "L1": "客户 SewerGEMS RD-A 模型（换算公制）现状管网 + 3 座现状泵站",
     "L2": "L1 + 雨前预置的 15 台移动泵（热点表 Plan A）",
     "L2+planned": "L2 + 客户计划的 2 台泵（客户 SewerGEMS 情景 Temporary Intervention）",
-    "L2+suggested": "L2+planned + 我们的建议方案：60 项措施（地下调蓄池 / 泵站 → 新建排海口 / 地面取水泵站），"
+    "L2+suggested": "L2+planned + 推荐方案（当前方案瘦身版，2026-10-27 交付）：53 项措施（地下调蓄池 / 泵站 → 新建排海口 / 地面取水泵站），"
                     "位置已按 WA-726 与空间约束筛过，造价为占位单价、不是概算",
 }
 
@@ -639,6 +639,24 @@ def _in_region(x: float, y: float, region: dict[str, Any]) -> bool:
             if _in_ring(x, y, rings[0]) and not any(_in_ring(x, y, h) for h in rings[1:]):
                 return True
     return False
+
+
+def ledger_adm_points() -> list[dict[str, Any]]:
+    """台账全部 ADM 积水点（不分区域），坐标缺失的跳过；全市任务补「域外」点用。"""
+    ledger = DATA_ROOT / "processed" / "hotspots_845.csv"
+    if not ledger.is_file():
+        return []
+    out = []
+    with ledger.open(encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            try:
+                lat, lon = round(float(r["lat"]), 6), round(float(r["lon"]), 6)
+            except (TypeError, ValueError):
+                continue
+            if (_adm(r["uid"]) or "").startswith("ADM-"):
+                out.append({"id": _adm(r["uid"]), "district": r["area"], "location": r["location"],
+                            "criticality": r.get("criticality"), "lat": lat, "lon": lon})
+    return out
 
 
 def region_ledger_points(region: dict[str, Any]) -> list[dict[str, Any]]:

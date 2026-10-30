@@ -5,6 +5,9 @@
     GET /api/rda/states/{state}/criteria           四项判据 A–D：逐热点 + 域级
     GET /api/rda/states/{state}/ponding            积水点清单（?depth=0.15|0.30），带 L3 承接 / 剔除标记 / 200 m 内热点
     GET /api/rda/states/{state}/ponding/custom     积水点按自定义阈值重算（?depth=&min_area=&min_dur=）
+    GET /api/rda/states/{state}/ponding/series     单个积水点逐帧的积水量 / 面积 / 最大水深（?lon=&lat=&depth=&min_area=&min_dur=）
+    GET /api/rda/states/{state}/hotspot-buffer/{id}/series  单个客户热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（?depth=）
+    GET /api/rda/states/{state}/hotspot-buffer     客户热点 200 m 圆内的地表峰值积水量 + 圆重叠（?depth=）
     GET /api/rda/states/{state}/ponding/areas      积水范围面 GeoJSON（?depth=）
     GET /api/rda/states/{state}/l3                 L3 承接汇总（后果等级、调度结果、两种调度范围）
     GET /api/rda/states/{state}/facilities         本状态设施图层 GeoJSON（逐级累加）+ 设施清单
@@ -55,6 +58,25 @@ def get_ponding(state: str, depth: str = Query("0.15")):
 def get_ponding_custom(state: str, depth: float = Query(0.15), min_area: float = Query(100.0), min_dur: float = Query(0.5)):
     """按自定义阈值从二维结果重算积水点（三角网共边连片）；默认阈值下与成果自带清单一致。"""
     return _call(rda.ponding_custom, state, round(depth, 3), round(min_area, 1), round(min_dur, 2))
+
+
+@router.get("/states/{state}/ponding/series")
+def get_point_series(state: str, lon: float = Query(...), lat: float = Query(...), depth: float = Query(0.15),
+                     min_area: float = Query(100.0), min_dur: float = Query(0.5)):
+    """某个积水点（按经纬度指定）逐帧的积水量 / ≥depth 面积 / 最大水深；阈值要与清单一致。"""
+    return _call(rda.point_series, state, lon, lat, round(depth, 3), round(min_area, 1), round(min_dur, 2))
+
+
+@router.get("/states/{state}/hotspot-buffer/{hotspot_id}/series")
+def get_hotspot_circle_series(state: str, hotspot_id: str, depth: float = Query(0.15)):
+    """某个客户热点 200 m 圆内逐帧的积水量 / ≥depth 面积 / 圆内最大水深（扣评估剔除区）。"""
+    return _call(rda.hotspot_circle_series, state, hotspot_id, round(depth, 3))
+
+
+@router.get("/states/{state}/hotspot-buffer")
+def get_hotspot_buffer(state: str, depth: float = Query(0.15)):
+    """客户热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元，扣评估剔除区）+ 各热点圆的重叠。"""
+    return _call(rda.hotspot_buffer, state, round(depth, 3))
 
 
 @router.get("/states/{state}/ponding/areas")

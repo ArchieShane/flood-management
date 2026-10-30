@@ -5,7 +5,7 @@ NAS 的 `runtime/out/交付/` 下三种形状并存，各有各的抽取口径�
 | 形状 | 例 | 判据 | 走 |
 |---|---|---|---|
 | 旧 .sww 交付 | `Mussafah_00_61mm2h` | 态目录下 `二维/` 有 `*_二维水深时序.sww` 且 `二维/耦合的一维/` 在 | `sim_sww`（15 m 规则网格切的三角网，每格 4 个三角形） |
-| 全市一二维 | `全市_61mm2h` | 目录名以「全市」开头 | `sim_city`（250 m 落图格网） |
+| 全市一二维 | `全市_61mm2h`；`ADM_City_61mm1h_100m_after` | 目录名以「全市」开头；或态目录下有 `1D/` + `2D/*_2d.npz`（英文布局） | `sim_city`（中文布局 250 m / 英文布局 100 m 落图格网） |
 | 一二维 npz 交付 | `C1_模型版_61mm2h_5m`、`Mussafah_00_模型版_61mm2h`、`YAS_模型版_…` | 其余 | `sim_c1`（C1 的 `一二维/`；或 `一维/ + 二维/` 加 `work/c2d` 里的 npz） |
 | 原生计算结果 | `原生计算结果_可拷贝`（AAM，SWMM .out/.rpt + ANUGA .sww） | 有 `请先阅读_原生结果说明.txt` + `配套参数与标识/` + `L1/*_2D.sww`（目录名不要求是交付形状） | `sim_native`（100 m 三角网聚到 250 m 落图格网） |
 
@@ -38,6 +38,9 @@ def detect(root: Path) -> str:
         return "native"
     region = parse_delivery_name(root.name)[0]
     if region.startswith("全市"):
+        return "city"
+    from . import sim_city
+    if sim_city.layout_of(root) == "adm":      # 阿布扎比全市改造后数据：英文目录 1D/ + 2D/*_2d.npz，一次抽两态
         return "city"
     for sd in sorted(p for p in root.iterdir() if p.is_dir() and re.match(r"L\d", p.name)):
         d2 = sd / "二维"

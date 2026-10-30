@@ -31,15 +31,11 @@ function nextUser() {
   <div class="sim-shell">
     <nav class="sim-rail">
       <RouterLink class="logo" to="/simulations">CC</RouterLink>
-      <RouterLink class="nav" to="/" :title="t('sim.nav.home')"><AppIcon name="grid" :size="20" /></RouterLink>
       <RouterLink class="nav on" to="/simulations" :title="t('sim.nav.simulation')">
         <AppIcon name="sliders" :size="20" />
       </RouterLink>
       <RouterLink class="nav" to="/rda" title="RD-A 全套成果"><AppIcon name="pulse" :size="20" /></RouterLink>
       <span class="nav off" :title="t('sim.nav.fleet')"><AppIcon name="truck" :size="20" /></span>
-      <RouterLink class="nav" to="/calculator" :title="t('sim.nav.calculator')">
-        <AppIcon name="pulse" :size="20" />
-      </RouterLink>
       <div class="spacer" />
       <button class="nav lang" :title="t('sim.nav.language')" @click="nextLocale">
         {{ LOCALES.find(l => l.key === locale).label }}

@@ -27,7 +27,8 @@ STATES: dict[str, dict] = {
     "L1": {"folder": "L1_现状", "tag": "L1", "label": "L1 现状", "line": "第一道防线 · 现状永久管网"},
     "L2": {"folder": "L2_雨前预置泵", "tag": "L2", "label": "L2 雨前预置泵", "line": "第二道防线 · 雨前预置移动泵"},
     "L2P": {"folder": "L2+planned_客户计划", "tag": "L2P", "label": "L2+planned 客户计划", "line": "第二道防线 · 客户已有计划（视同建成）"},
-    "OPTCS2": {"folder": "L2+suggested_我们的方案", "tag": "OPTCS2", "label": "L2+suggested 我们的方案", "line": "第二道防线 · 我们的建议方案"},
+    # key 是本系统的协议值（接口 / 前端沿用 OPTCS2）；目录与文件名里的记号随交付走：2026-10-27 的交付把 OPTCS2 换成了 OPTA61PS
+    "OPTCS2": {"folder": "L2+suggested_推荐方案", "tag": "OPTA61PS", "label": "L2+suggested 推荐方案", "line": "第二道防线 · 推荐方案（当前方案瘦身版）"},
 }
 DEPTHS = ("0.15", "0.30")
 
@@ -59,7 +60,8 @@ def root() -> Path:
 
 def available() -> bool:
     try:
-        return (root() / "README.md").is_file()
+        # 交付里一定有 `积水点说明.md`（2026-10-27 的交付没带 README.md）；页面不读它们的内容，只认成果在不在
+        return any((root() / n).is_file() for n in ("README.md", "积水点说明.md"))
     except RdaError:
         return False
 
@@ -248,17 +250,43 @@ def ponding(key: str, depth: str = "0.15") -> dict:
         r["excluded"] = bool(x and x["落在评估剔除区"] == "是")
         r["exclusion_note"] = x["剔除区说明"] if x else None
         r["area_after_exclusion_m2"] = x["扣除后 m²"] if x else None
+        # 客户文档（RD-A 模拟积水点与客户热点重合分析 2026-10-26）的口径：一半以上面积落在剔除区内的片不计入。
+        # 成果自带的「落在评估剔除区」判据更严（L1 一片都没标），所以另给这个标记，不改成果原字段
+        r["mostly_excluded"] = bool(x and r["area_m2"] and float(x["扣除后 m²"]) < 0.5 * float(r["area_m2"]))
         r["near_hotspots"] = near.get(r["id"], [])
         r["l3"] = _l3_row(l3[r["id"]]) if r["id"] in l3 else None
         # 未退的点 recede_h 为空，前端要「未退」二字
         r["status"] = "未退" if r["receded"] is False else "已退"
+    _add_peak_times(key, dep, rows)
     return {
         "state": key, "depth_m": float(dep), "count": len(rows),
         "peak_vol_sum_m3": sum(r["vol_peak_m3"] or 0 for r in rows),
         "not_receded": sum(r["receded"] is False for r in rows),
         "excluded": sum(r["excluded"] for r in rows),
+        "mostly_excluded": sum(r["mostly_excluded"] for r in rows),
         "points": rows,
     }
+
+
+PEAK_TIME_FIELDS = ("area_peak_m2", "t_area_peak_h", "t_hmax_h")
+
+
+def _add_peak_times(key: str, dep: str, rows: list[dict]) -> None:
+    """成果清单只给了峰值积水量的时刻（`t_peak_h`）；最大面积和最大水深出现在哪个时刻要从逐帧水深现算。
+
+    用成果的默认阈值（100 m²、0.5 h）从二维结果重算同一批片，按「最深单元的经纬度」对上成果清单的行，
+    且峰值积水量、峰值时刻也相等才采用（默认阈值下与成果逐点一致，见 `test_rda.py`）；对不上的行填 None，
+    **不改清单里任何已有字段**。读不了二维结果（缺文件 / 缺 scipy）时整批填 None。
+    """
+    try:
+        c = {(round(p["lon"], 5), round(p["lat"], 5)): p for p in ponding_custom(key, float(dep), 100.0, 0.5)["points"]}
+    except Exception:
+        c = {}
+    for r in rows:
+        q = c.get((round(float(r["lon"]), 5), round(float(r["lat"]), 5)))
+        ok = bool(q) and q["vol_peak_m3"] == r["vol_peak_m3"] and abs(q["t_peak_h"] - r["t_peak_h"]) < 0.01
+        for f in PEAK_TIME_FIELDS:
+            r[f] = q[f] if ok else None
 
 
 def _l3_row(r: dict) -> dict:
@@ -314,7 +342,7 @@ def _ledger_files() -> Path:
 
 @lru_cache(maxsize=1)
 def ledger() -> list[dict]:
-    """L2+suggested 的 60 项措施台账（设计参数 + 造价 + 可建性 + 审批）。"""
+    """L2+suggested 的措施台账（设计参数 + 造价 + 可建性 + 审批）；项数以交付为准（2026-10-27 的推荐方案是 53 项）。"""
     p = _one(_ledger_files(), "L2+suggested_设施台账*.csv")
     return _csv(p) if p else []
 
@@ -350,6 +378,23 @@ def npv() -> dict | None:
 def intakes() -> list[dict]:
     p = _one(_ledger_files(), "L2+suggested_地面取水口.csv")
     return _csv(p) if p else []
+
+
+def scheme_compare() -> list[dict]:
+    """推荐方案与客户计划 / 专门方案 / 当前方案的并排对比（`方案对比.csv`：每场雨、每个方案的客户热点四项全过数与 ≥0.30 m 面积）。"""
+    p = _one(_ledger_files(), "L2+suggested_方案对比.csv")
+    return _csv(p) if p else []
+
+
+def scheme_diff() -> list[dict]:
+    """推荐方案相对当前方案删去 / 换掉了哪些措施（`与当前方案的差异.csv`）。"""
+    p = _one(_ledger_files(), "L2+suggested_与当前方案的差异.csv")
+    return _csv(p) if p else []
+
+
+def _col(r: dict, prefix: str):
+    """台账列名按前缀取（交付改过表头：『截流井溢流量 m³（96 mm 两场取大）』→『截流井溢流量 m³』），按最新的来、旧版也认。"""
+    return next((v for k, v in r.items() if k.startswith(prefix)), None)
 
 
 def surface_ps_geojson() -> dict:
@@ -393,7 +438,7 @@ def suggested() -> dict:
         items.append({
             "id": r["编号"], "type": r["类型"], "hotspot": r["服务热点"],
             "lon": r["经度"], "lat": r["纬度"],
-            "intercept_wells": r["截流井"], "overflow_m3": r["截流井溢流量 m³（96 mm 两场取大）"],
+            "intercept_wells": r["截流井"], "overflow_m3": _col(r, "截流井溢流量"),
             "tank_m3": r["池容 m³"], "effective_depth_m": r["有效水深 m"], "invert_m": r["池底高程 m"],
             "excavation_m": r["开挖深度 m"],
             "pumps": r["泵台数"], "design_q_m3s": r["设计流量 m³/s"], "pump_q_m3s": r["单泵流量 m³/s"],
@@ -404,12 +449,15 @@ def suggested() -> dict:
             "cost_usd": r["占位造价 USD"], "cost_basis": r["造价依据"],
             "buildability": r["可建性"], "approvals": r["需审批 / 许可"], "missing_data": r["缺数据判不了"],
             "check_count": r["合规检查项数"], "check_tally": tally,
+            "vs_current": r.get("与当前方案相比"),        # 相对当前方案（96 mm 优化版）：保留 / 新增 / 换成更省的…
         })
     return {
         "measures": items,
         "by_type": cost_summary(),
         "npv": npv(),
         "intakes": intakes(),
+        "compare": scheme_compare(),
+        "diff": scheme_diff(),
         "surface_ps": surface_ps_geojson(),
         "note": "造价是占位单价，用于方案比较，不是工程概算；位置已按 WA-726 规则、用地和地下管线约束筛过，落地前仍需现场核实和主管部门许可。",
     }
@@ -680,6 +728,8 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
                 continue
             vol = (Fc * ca).sum(axis=1)
             ip = int(vol.argmax())
+            ia = int(a_t.argmax())                       # 同一时刻片内 ≥depth 的面积最大的那一帧
+            ih = int(Fc.max(axis=1).argmax())            # 片内水深最大的那一帧
             after = np.nonzero(a_t[ip:] < min_area)[0]
             receded = bool(len(after))
             deep = int(cells[hmax[cells].argmax()])
@@ -695,6 +745,9 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
                 "hmax_m": round(float(hmax[deep]), 2), "ground_z_m": round(float(elev[deep]), 2),
                 "area_m2": int(round(ca.sum())), "area_ge030_m2": int(round(ca[hmax[cells] >= 0.30].sum())),
                 "duration_h": round(dur, 2), "vol_peak_m3": int(round(float(vol[ip]))), "t_peak_h": round(float(t[ip]), 2),
+                # 三个「最大值在哪个时刻」：积水量见 t_peak_h；最大面积 = 同一时刻 ≥depth 的面积之和最大（不是各单元最大水深的并集 area_m2）
+                "area_peak_m2": int(round(float(a_t[ia]))), "t_area_peak_h": round(float(t[ia]), 2),
+                "t_hmax_h": round(float(t[ih]), 2),
                 "receded": receded, "recede_h": round(float(after[0] * dt), 2) if receded else None,
                 "vol_end_m3": int(round(float(vol[-1]))), "t_end_h": round(float(t[-1]), 1),
                 "nearest_client_hotspot": hid[order[0]], "nearest_client_hotspot_dist_m": int(round(dist[order[0]])),
@@ -704,11 +757,94 @@ def ponding_custom(key: str, depth: float = 0.15, min_area: float = 100.0, min_d
     points.sort(key=lambda p: -p["vol_peak_m3"])
     for i, p in enumerate(points, 1):
         p.update({"id": f"SIM-{tag}-{i:03d}", "state": tag, "depth_threshold_m": depth, "min_area_m2": min_area,
-                  "min_duration_h": min_dur, "excluded": False, "exclusion_note": None, "area_after_exclusion_m2": None,
+                  "min_duration_h": min_dur, "excluded": False, "mostly_excluded": False, "exclusion_note": None,
+                  "area_after_exclusion_m2": None,
                   "l3": None, "status": "已退" if p["receded"] else "未退"})
     return {
         "state": key, "depth_m": depth, "min_area_m2": min_area, "min_duration_h": min_dur, "custom": True,
         "count": len(points), "peak_vol_sum_m3": sum(p["vol_peak_m3"] for p in points),
-        "not_receded": sum(not p["receded"] for p in points), "excluded": 0, "points": points,
+        "not_receded": sum(not p["receded"] for p in points), "excluded": 0, "mostly_excluded": 0, "points": points,
         "note": "按所给阈值从二维结果现算（三角网共边连片）；不扣地表塘占地，没有 L3 承接与评估剔除标记。",
     }
+
+
+def cell_series(F: np.ndarray, area: np.ndarray, cells: np.ndarray, depth: float, t_h: np.ndarray) -> dict:
+    """一片积水（一组单元）逐帧的变化过程：积水量 Σ(水深×面积)、≥depth 的面积、片内最大水深。
+    与 `ponding_custom` 的峰值积水量 / 最大面积同一算法，所以曲线峰值 = 清单里的 vol_peak_m3 / area_peak_m2。"""
+    Fc = F[:, cells].astype(np.float32)
+    ca = area[cells].astype(np.float64)
+    return {
+        "t_h": [round(float(v), 4) for v in t_h],
+        "vol_m3": [round(float(v), 1) for v in (Fc * ca).sum(axis=1)],
+        "area_m2": [round(float(v), 1) for v in ((Fc >= depth) * ca).sum(axis=1)],
+        "depth_m": [round(float(v), 3) for v in Fc.max(axis=1)],
+        "depth_threshold_m": depth, "n_cells": int(len(cells)),
+    }
+
+
+def point_series(key: str, lon: float, lat: float, depth: float = 0.15, min_area: float = 100.0, min_dur: float = 0.5) -> dict:
+    """某个积水点随时间的积水量 / 面积 / 最大水深。积水点按经纬度对上（成果自带清单与重算清单都带 lon / lat，
+    默认阈值下两者逐点一致，匹配方式同 `_add_peak_times`）；阈值要与清单当时用的一致，否则找不到。"""
+    pts = ponding_custom(key, depth, min_area, min_dur)["points"]
+    p = next((q for q in pts if round(q["lon"], 5) == round(lon, 5) and round(q["lat"], 5) == round(lat, 5)), None)
+    if p is None:
+        raise RdaError("找不到这个积水点（态或阈值变了？）")
+    c = _cells(key)
+    return {"id": p["id"], "state": key, "vol_peak_m3": p["vol_peak_m3"], "t_peak_h": p["t_peak_h"],
+            **cell_series(c["frames"], c["area"], np.asarray(p["cells"], dtype=np.int64), depth, c["t_h"])}
+
+
+@lru_cache(maxsize=1)
+def _exclusion_rings() -> list[np.ndarray]:
+    """评估剔除区的多边形环（UTM 40N 坐标）。"""
+    rings = []
+    for f in exclusion_zones()["features"]:
+        g = f["geometry"]
+        polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
+        for poly in polys:
+            ll = np.array(poly[0], dtype=np.float64)
+            x, y = _lonlat_to_utm40(ll[:, 0], ll[:, 1])
+            rings.append(np.stack([x, y], 1))
+    return rings
+
+
+@lru_cache(maxsize=4)
+def _exclusion_mask(key: str) -> np.ndarray:
+    """各单元是否落在评估剔除区内（整张网一次，热点圆内积水量与单热点过程共用）。"""
+    from . import hotspot_buffer as hb
+
+    c = _cells(key)
+    return hb.points_in_polygons(c["xy"][:, 0], c["xy"][:, 1], _exclusion_rings())
+
+
+def hotspot_circle_series(key: str, hotspot_id: str, depth: float = 0.15) -> dict:
+    """某个客户热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（扣评估剔除区；口径同 `hotspot_buffer`，曲线峰值 = 清单里的圆内峰值积水量）。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    f = next((x for x in hotspots()["features"] if x["properties"]["hotspot_id"] == hotspot_id), None)
+    if f is None:
+        raise RdaError("找不到这个热点")
+    hx, hy = _lonlat_to_utm40(np.array([f["geometry"]["coordinates"][0]]), np.array([f["geometry"]["coordinates"][1]]))
+    c = _cells(key)
+    return {"id": hotspot_id, "state": key,
+            **hb.circle_series(c["xy"], c["area"], c["frames"], c["t_h"], (float(hx[0]), float(hy[0])), depth, skip=_exclusion_mask(key))}
+
+
+@lru_cache(maxsize=32)
+def hotspot_buffer(key: str, depth: float = 0.15) -> dict:
+    """客户热点 200 m 圆内的地表峰值积水量（水深 ≥ depth 的单元），及各热点圆的重叠；口径见 `hotspot_buffer.py`。
+    落在评估剔除区内的单元不算（与积水点覆盖「剔除多半在剔除区的片」同口径）。"""
+    from . import hotspot_buffer as hb
+
+    hb.check_depth(depth)
+    c = _cells(key)
+    hs = hotspots()["features"]
+    hx, hy = _lonlat_to_utm40(np.array([f["geometry"]["coordinates"][0] for f in hs]),
+                              np.array([f["geometry"]["coordinates"][1] for f in hs]))
+    skip = _exclusion_mask(key)
+    out = hb.buffer_stats(c["xy"], c["area"], c["frames"], c["t_h"], np.stack([hx, hy], 1),
+                          [f["properties"]["hotspot_id"] for f in hs], depth, skip=skip)
+    out["state"] = key
+    out["n_excluded_cells"] = int(skip.sum())
+    return out

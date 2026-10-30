@@ -2,21 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { t } from '../i18n'
 
-// 两个页面就是原来后端那两个路由：/ 指挥中心、/calculator 单点快算。
-// 路径保持不变，旧书签不会失效。/simulations 起是仿真任务（列表 + 新建向导）。
+// 只保留仿真模块：/simulations 起是仿真任务（列表 + 新建向导），/rda 是 RD-A 全套成果。
 const routes = [
-  {
-    path: '/',
-    name: 'command-centre',
-    component: () => import('../views/CommandCentre.vue'),
-    meta: { titleKey: 'app.commandCentre' },
-  },
-  {
-    path: '/calculator',
-    name: 'calculator',
-    component: () => import('../views/CalculatorView.vue'),
-    meta: { titleKey: 'app.calculator' },
-  },
+  { path: '/', redirect: '/simulations' },
   {
     path: '/simulations',
     name: 'simulations',
@@ -49,12 +37,12 @@ const routes = [
     component: () => import('../views/RdaView.vue'),
     meta: { title: 'RD-A 全套成果' },
   },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/:pathMatch(.*)*', redirect: '/simulations' },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
 
-// 标题跟着语言走：切换时 TopMenu / CalculatorView 会再设一次
+// 标题跟着语言走：切换时 SimShell 会再设一次
 router.afterEach(to => {
   if (to.meta.titleKey) document.title = t(to.meta.titleKey)
   else if (to.meta.title) document.title = to.meta.title

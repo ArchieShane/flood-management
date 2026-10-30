@@ -51,10 +51,17 @@ NO_STATE = "这份成果没有这个方案态"
 NO_EFFECT = "这个任务不是多态成果，没有方案效果可比"
 NO_PROPOSED_PONDS = "没有拟建调蓄池数据"
 NO_HOTSPOTS = "这个任务没有积水点"
+NO_EQUIPMENT = "这个任务没有应对设备配置数据"
 
 #: 拟建调蓄池（交付方给的选址方案，EPSG:32640 多边形），与具体任务无关，详情页按需叠加
 PROPOSED_PONDS_FILE = DATA_ROOT / "temp" / "proposed_ponds.geojson"
-MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS)
+MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS, NO_EQUIPMENT)
+
+#: 全市应对设备配置（2026-10-28 交付）：放在成果目录根上的两个文件，第一档固定设施（L2 sugg，总水量 45%）、第二档移动泵与罐车（L3，20%）
+EQUIPMENT_FILES = {"fixed": "equipment_fixed.json", "mobile": "equipment_mobile.json"}
+#: 原文件里只留数字和协议值；英文标题 / 范围 / 备注由页面按中英文自己写，不透传
+PONDING_GE_FILE = "ponding_ge.json"
+_EQUIPMENT_KEEP = ("generated", "inputs", "assumptions", "scenarios")
 
 #: 多态交付（一个任务涵盖几种工况，如 Mussafah 四态）的清单文件，放在 `output_dir` 根上，见 `sim_sww.py`：
 #: {"default": "L1", "states": [{"key", "label", "defence_line_key", "dir", "same_as"}]}
@@ -179,6 +186,7 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
 
     - 积水面积 / 最深水深：有 `surface_series`（sww 交付）时取同一时刻的三角形口径（水深 ≥ 0.02 m，与卡片的
       「最大积水面积」同口径，峰值那一帧就等于它）；没有就给 null，前端按本帧 ≥ 1 cm 的格子自己算（`area_basis = cell`）。
+    - 地表积水总量 `volume_m3`：有 `surface_series` 时取同一帧的 Σ(水深 × 单元面积)，没有就给 null。
     - 累计溢水量：截至本帧的 SWMM → 地表累计量。sww 交付取耦合记录（逐 10 min，帧落在两点之间线性插值）；
       全市交付取回执逐窗累加（5 min 一窗，与帧对齐）。末帧等于卡片上的全程量。超出记录范围给 null。
     - 已出现的溢水点：片区成立时刻 `onset_min` ≤ 本帧的个数，与地图逐帧点亮同一判据；片区算不出给 null。
@@ -191,7 +199,7 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
     s = _summary(d)
     t = np.asarray([f["time_minutes"] for f in _manifest(d)], float)
     out: dict[str, Any] = {"time_minutes": t.tolist(), "area_basis": "cell", "wet_threshold_m": None,
-                           "wet_area_m2": None, "max_depth_m": None,
+                           "wet_area_m2": None, "max_depth_m": None, "volume_m3": None,
                            "overflow_basis": None, "overflow_cum_m3": None, "ponding_lit": None, "ponding_total": None}
     rel = s["outputs"].get("surface_series")
     ser = _load(d / rel) if rel and (d / rel).is_file() else None
@@ -202,7 +210,8 @@ def timeline(conn: psycopg.Connection, run_id: int, state: str | None = None) ->
         hit = np.abs(st[j] - t) <= 0.5
         pick = lambda k: [float(ser[k][i]) if h else None for i, h in zip(j.tolist(), hit.tolist())]
         out.update(area_basis="triangle", wet_threshold_m=ser.get("wet_threshold_m"),
-                   wet_area_m2=pick("wet_area_m2"), max_depth_m=pick("max_depth_m"))
+                   wet_area_m2=pick("wet_area_m2"), max_depth_m=pick("max_depth_m"),
+                   volume_m3=pick("volume_m3") if "volume_m3" in ser else None)   # 地表积水总量（Σ水深×单元面积）
         ov = ser.get("overflow")
         if ov and ov.get("time_minutes"):
             ot, oc = np.asarray(ov["time_minutes"], float), np.asarray(ov["cum_m3"], float)
@@ -304,6 +313,27 @@ def ponding(conn: psycopg.Connection, run_id: int, state: str | None = None) -> 
         raise sim.SimulationError(422, NO_PONDING) from exc
 
 
+def equipment(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """全市应对设备配置：{fixed, mobile} 各是 generated / inputs / assumptions / scenarios。
+
+    只有总量和数量，没有位置、没有逐台设备；管长、扬程、效率是占位值（页面照实注明）。两个文件缺一个就整体 404。
+    """
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    paths = {k: root / f for k, f in EQUIPMENT_FILES.items()}
+    if DATA_ROOT.resolve() not in root.parents or not all(p.is_file() for p in paths.values()):
+        raise sim.SimulationError(404, NO_EQUIPMENT)
+    out = {k: {f: _load(p)[f] for f in _EQUIPMENT_KEEP} for k, p in paths.items()}
+    # 各态「水深 ≥ 阈值」的积水量（sim_ponding_ge.py 离线算的），有就随设备配置一起给，页面的 L1 / L2 总览用
+    ge = root / PONDING_GE_FILE
+    if ge.is_file():
+        j = _load(ge)
+        out["ponding_ge"] = {"threshold_m": j["threshold_m"], "volume_m3": j["volume_m3"]}
+    return out
+
+
 def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     """交付自带的积水点（热点）：坐标、汇水区面、逐态统计（`sim_c1.extract_hotspots` 写在任务根目录）。没有的 404。"""
     row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
@@ -317,6 +347,11 @@ def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
     from . import sim_c1
 
     hot["ledger_points"] = sim_c1.region_ledger_points(hot.get("region_catchment") or {})
+    if hot.get("schema") == "flood_management.city_hotspots.v1":
+        # 全市：台账 ADM 506 个里落在二维计算域外的也列出来（没有仿真结果，outside=true），关注积水点总数对上台账
+        have = {sim_c1._adm(p["id"]) for p in hot["points"]}
+        hot["points"] = list(hot["points"]) + [{**p, "stats": {}, "outside": True} for p in sim_c1.ledger_adm_points()
+                                               if sim_c1._adm(p["id"]) not in have]
     return hot
 
 
