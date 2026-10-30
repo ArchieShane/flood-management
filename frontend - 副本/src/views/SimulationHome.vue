@@ -5,11 +5,12 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { deleteSimulation, fetchSimulationOptions, fetchSimulations, openSimulation } from '../api'
+import { deleteSimulation, fetchRdaOverview, fetchSimulationOptions, fetchSimulations, openSimulation } from '../api'
 import RunHistory from '../components/sim/RunHistory.vue'
 import SimShell from '../components/sim/SimShell.vue'
 import { useSimUser } from '../composables/useSimUser'
 import { locale, t } from '../i18n'
+import { tr } from '../i18n/rda'
 import { useToastStore } from '../stores/toast'
 import { stormLabel } from '../utils/sim'
 
@@ -17,6 +18,8 @@ const router = useRouter()
 const toast = useToastStore()
 const { user } = useSimUser()
 
+// RD-A 全套成果不是数据库里的仿真任务（直接读成果目录），首页放一张入口卡；目录不在就不显示
+const rda = ref(null)
 const history = ref(null)
 const users = ref([])
 const tab = ref('all')
@@ -53,6 +56,7 @@ async function loadAll() {
 
 onMounted(async () => {
   loadAll()
+  fetchRdaOverview().then(o => (rda.value = o)).catch(() => {})
   fetchSimulationOptions().then(o => (users.value = o.users)).catch(() => {})
 })
 // 运行中任务的进度靠轮询刷新；一分钟一次足够，页面隐藏时浏览器会自行降频
@@ -89,6 +93,17 @@ async function remove(run) {
   <SimShell :users="users">
     <h1 class="sim-h1">{{ t('sim.title') }}</h1>
 
+    <RouterLink v-if="rda" to="/rda" class="rda-card">
+      <div>
+        <b>{{ tr(rda.title) }}</b>
+        <span class="tag">{{ rda.rain.depth_mm }} mm / {{ rda.rain.duration_h }} h</span>
+      </div>
+      <p>
+        {{ tr('四个状态（L1 / L2 / L2+planned / L2+suggested）的二维结果、积水点、L3 派单、设施与 {n} 项建议措施。', { n: rda.suggested_measures }) }}
+      </p>
+      <span class="go">{{ tr('打开') }} ›</span>
+    </RouterLink>
+
     <RunHistory
       :tab="tab"
       :data="history"
@@ -103,3 +118,12 @@ async function remove(run) {
     />
   </SimShell>
 </template>
+
+<style scoped>
+.rda-card { display: block; margin: 0 0 14px; padding: 12px 16px; border: 1px solid var(--blue); border-radius: var(--radius);
+  background: var(--blue-bg); color: var(--fg); text-decoration: none; position: relative; }
+.rda-card b { font-size: 15px; }
+.rda-card .tag { margin-left: 10px; font-size: 12px; color: var(--blue-lt); }
+.rda-card p { margin: 4px 0 0; font-size: 12.5px; color: var(--fg-2); max-width: 820px; }
+.rda-card .go { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--blue-lt); }
+</style>

@@ -43,6 +43,12 @@ const routes = [
     props: true,
     meta: { titleKey: 'sim.title' },
   },
+  {
+    path: '/rda',
+    name: 'rda',
+    component: () => import('../views/RdaView.vue'),
+    meta: { title: 'RD-A 全套成果' },
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
@@ -51,6 +57,7 @@ const router = createRouter({ history: createWebHistory(), routes })
 // 标题跟着语言走：切换时 TopMenu / CalculatorView 会再设一次
 router.afterEach(to => {
   if (to.meta.titleKey) document.title = t(to.meta.titleKey)
+  else if (to.meta.title) document.title = to.meta.title
 })
 
 export default router

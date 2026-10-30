@@ -31,7 +31,8 @@ function switchLocale(key) {
     <div class="t">{{ t('menu.title') }}</div>
     <div class="nav">
       <span>{{ t('menu.nav1') }}</span><span>{{ t('menu.nav2') }}</span><b>{{ t('menu.nav3') }}</b
-      ><RouterLink class="link" to="/simulations">{{ t('menu.simulation') }}</RouterLink><span>ADREC</span>
+      ><RouterLink class="link" to="/simulations">{{ t('menu.simulation') }}</RouterLink
+      ><RouterLink class="link" to="/rda">RD-A 成果</RouterLink><span>ADREC</span>
     </div>
     <div class="right">
       <span class="note">{{ t('menu.idfDataset') }}</span>

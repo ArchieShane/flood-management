@@ -22,10 +22,13 @@ import ResultMap from '../components/sim/ResultMap.vue'
 import RunCompare from '../components/sim/RunCompare.vue'
 import LevelPanel from '../components/sim/LevelPanel.vue'
 import PerfPanel from '../components/sim/PerfPanel.vue'
+import RdaPanels from '../components/rda/RdaPanels.vue'
 import RunHyetograph from '../components/sim/RunHyetograph.vue'
 import RunSummary from '../components/sim/RunSummary.vue'
 import SimShell from '../components/sim/SimShell.vue'
+import { RDA_KEY, useRda } from '../composables/useRda'
 import { locale, t } from '../i18n'
+import { tr } from '../i18n/rda'
 import { useToastStore } from '../stores/toast'
 import { PERF_COLOR, perfClass, perfPopup } from '../utils/perf'
 import { analysisLabel, fmtInt, fmtWhen, stateCode, statusLabel } from '../utils/sim'
@@ -69,7 +72,7 @@ const isPreset = computed(() => options.value?.storm_presets.find(p => p.key ===
 const metrics = computed(() => [
   ['stillPond', res.value?.still_pond_count],
   ['drained', res.value?.drained_volume_m3],
-  ['overflow', res.value?.overflow_node_count],
+  ...(run.value?.extent === 'RDA' ? [] : [['overflow', res.value?.overflow_node_count]]),   // RD-A 不出溢水点
   ['duration', res.value?.ponding_duration_h],
   ['validation', res.value?.validation_hit_rate_pct != null ? `${fmtInt(res.value.validation_hit_rate_pct)}%` : null],
 ])
@@ -80,6 +83,24 @@ const stateKey = computed(() => {
   return states.value.some(s => s.key === route.query.state) ? route.query.state : run.value.state_default
 })
 const curState = computed(() => states.value?.find(s => s.key === stateKey.value) || null)
+
+/* ---- RD-A 全套成果（extent = RDA）：这条任务多出一组明细（积水点算法 / L3 派单 / 设施 / 判据 / 措施），
+   不出「溢水点」「溢水量」——RD-A 有自己的积水点算法。数据与选中项在 useRda，和 /rda 页共用。 ---- */
+const isRda = computed(() => run.value?.extent === 'RDA')
+const rdaState = computed(() => (isRda.value ? RDA_KEY[stateKey.value] || 'OPTCS2' : null))
+const rda = useRda(rdaState, { onError: msg => toast.show(msg, 'var(--red)') })
+const rdaTab = ref('ponding')
+const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
+const simPoints = computed(() => (isRda.value ? (rda.ponding.value?.points || []).map(p => ({
+  id: p.id, lat: p.lat, lon: p.lon, vol: p.vol_peak_m3, color: LEVEL_COLOR[p.l3?.level] || '#d9434b',
+  label: `${p.id} · ${p.hmax_m} m · ${Math.round(p.vol_peak_m3).toLocaleString('en-US')} m³`,
+})) : null))
+watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immediate: true })
+function onSimPoint(id) {
+  rdaTab.value = 'ponding'
+  rda.selPoint.value = id
+  document.querySelector('.sd-rda')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const setState = k => router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
 const stateTitle = s => stateCode(s.same_as ? t('sim.detail.sameAs', { label: s.label, as: s.same_as }) : s.label)
 watch(stateKey, () => {
@@ -211,6 +232,7 @@ async function cancel() {
       <span v-if="perf && perfFit" class="sim-tag sd-variant">{{ stateCode(perfFit.base.label) }} vs {{ stateCode(perfFit.vs.label) }}</span>
       <span v-else-if="l2View && !planView && !(curState && !curState.same_as)" class="sim-tag sd-variant">{{ t('sim.l2.tag') }}</span>
       <span v-else-if="curState || run?.variant_label" class="sim-tag sd-variant">{{ curState ? stateTitle(curState) : stateCode(run.variant_label) }}</span>
+      <RouterLink v-if="run?.extent === 'RDA'" to="/rda" class="sim-tag sd-rda">{{ tr('RD-A 完整页（逐帧播放 · 概览）') }} ›</RouterLink>
       <span v-if="run" :class="'st-' + run.status" style="width: auto">
         <span class="sim-dot" />{{ statusLabel(run) }}
       </span>
@@ -259,14 +281,20 @@ async function cancel() {
     <div v-else-if="run?.has_layers" class="sd-grid">
       <ResultMap ref="mapRef" :key="`${run.id}|${stateKey || ''}`" :run-id="run.id" :state="stateKey"
                  :l2-ponds="l2View && !states && l2?.ponds?.length ? l2.ponds : null"
-                 :l2-note="planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
+                 :l2-note="isRda ? '' : planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
+                 :no-overflow="isRda" :sim-points="simPoints" :sim-selected="rda.selPoint.value" @simpoint="onSimPoint"
                  @meta="layerMeta = $event" @ponding="onPonding" @active="pondActive = $event" @now="mapNow = $event" @hotspots="hotspots = $event" />
       <RunCompare v-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
-      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta"
+      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="isRda"
                   :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
     </div>
     <RunCompare v-else-if="run && compare" class="sd-cmp-solo" :run="run" @open="openLine" />
+
+    <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
+    <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
+      <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
+    </section>
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">
       <p v-if="!run.has_layers" class="sim-empty" style="padding-top: 0">{{ t('sim.detail.resultsPending') }}</p>
@@ -316,6 +344,7 @@ async function cancel() {
 .sd-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; align-items: start; }
 .sd-grid > .ro { margin-top: 20px; position: sticky; top: 20px; }
 .sd-variant { background: var(--blue-bg); color: var(--blue-lt); }
+.sd-rda { margin-top: 20px; padding: 4px 6px 10px; }
 .sd-lines { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .sd-seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); }
 .sd-seg button { border: 0; background: none; color: var(--fg-2); font: inherit; font-size: 14px; padding: 4px 10px;

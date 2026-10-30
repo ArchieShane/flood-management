@@ -87,3 +87,25 @@ export const fetchSimulationPerf = (id, vs, h) => {
   const s = q.toString()
   return get(`/api/simulations/${id}/states/perf${s ? `?${s}` : ''}`)
 }
+
+// ---------------------------------------------------------------------------
+// RDA 全套成果（只读，后端 api/rda.py 直接读交付目录）。态 key：L1 / L2 / L2P / OPTCS2
+export const fetchRdaOverview = () => get('/api/rda/overview')
+export const fetchRdaRain = () => get('/api/rda/rain')
+export const fetchRdaCriteria = state => get(`/api/rda/states/${state}/criteria`)
+export const fetchRdaPonding = (state, depth = '0.15') => get(`/api/rda/states/${state}/ponding?depth=${depth}`)
+export const fetchRdaPondingAreas = (state, depth = '0.15') => get(`/api/rda/states/${state}/ponding/areas?depth=${depth}`)
+export const fetchRdaL3 = state => get(`/api/rda/states/${state}/l3`)
+export const fetchRdaFacilities = state => get(`/api/rda/states/${state}/facilities`)
+export const fetchRdaMaxDepth = (state, minDepth = 0.15) => get(`/api/rda/states/${state}/max-depth?min_depth=${minDepth}`)
+export const fetchRdaSuggested = () => get('/api/rda/suggested')
+export const fetchRdaCompliance = id => get(`/api/rda/suggested/${encodeURIComponent(id)}/compliance`)
+export const fetchRdaHotspots = () => get('/api/rda/layers/hotspots')
+export const fetchRdaGrid = () => get('/api/rda/grid')
+export const fetchRdaFrameIndex = state => get(`/api/rda/states/${state}/frames`)
+export const fetchRdaFrame = (state, i, base) =>
+  get(`/api/rda/states/${state}/frames/${i}` + (base ? `?mode=diff&base=${base}` : ''))
+export const fetchRdaMaxDepthDiff = (state, base) => get(`/api/rda/states/${state}/max-depth-diff?base=${base}`)
+export const fetchRdaHotspotSeries = () => get('/api/rda/hotspots/series')
+export const fetchRdaPondingCustom = (state, depth, minArea, minDur) =>
+  get(`/api/rda/states/${state}/ponding/custom?depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)

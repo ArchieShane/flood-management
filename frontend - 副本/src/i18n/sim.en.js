@@ -505,6 +505,7 @@ export default {
     noteNowL2: 'The Line 2 view reuses the Line 1 overflow points; overflow volume, area and depth are scaled by the same ratio.',
     vsL1: 'vs Line1',
     noteState: 'Flooded area and depth are peaks within the first {w} h all states share (area from the single largest instant); overflow is the whole-run coupled SWMM total; storage is geometric, covering pipe volume and storage nodes.',
+    noteStateNoOvf: 'Flooded area and depth are peaks within the first {w} h all states share (area from the single largest instant); storage is geometric, covering pipe volume and storage nodes.',
     notComparable: 'Some state still overflows after the shared window; whole-run overflow totals do not compare directly.',
     sameAs: '{s} gives the same result as {as} (no built ponds in this area).',
     noteCity: 'Line 1 area and depth come from the 2D results, overflow from the whole-run coupled SWMM total.',
@@ -514,6 +515,7 @@ export default {
     noStorage: 'This delivery has no 1D model; storage capacity is not shown.',
     notePlain: 'This delivery has no coupled 1D results; overflow and storage capacity are not shown.',
   },
+  rda: { simToggle: 'Ponding points (algorithm)' },
   fac: {
     toggle: 'Planned facilities',
     count: '{p} pumps · {i} intake · {s} ponds',
