@@ -47,6 +47,20 @@ _DROP = {"kind", "防线层级", "排到 经度", "排到 纬度", "经度", "�
 NEAR_M = 200.0
 
 
+def engine_title(root: Path) -> str | None:
+    """engine 推演的多态交付（`outputs.json` 的 layout = rda_multi_state）返回它的区域标题（如 RD-A），否则 None。
+    这种交付不是 AECOM 的 RDA_61mm1h_全套成果：任务的范围名用区域标题（不是 `RDA`），详情页就不会去读固定的 AECOM 成果（`rda.py` 的 RDA_DIR），
+    积水点和热点覆盖从各态自己的二维结果现算（`city_ponding.prepare_rda_layout`）。"""
+    p = root / "outputs.json"
+    if not p.is_file():
+        return None
+    try:
+        o = json.loads(p.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    return o.get("title") if o.get("layout") == "rda_multi_state" else None
+
+
 def is_rda(root: Path) -> bool:
     """交付形状：有 `公共/客户热点.geojson` 与 `公共/判据评估_*.json`，态目录里是 `一二维/*_二维结果.npz`。"""
     return (root / "公共" / "客户热点.geojson").is_file() and any((root / "公共").glob("判据评估_*.json")) \
@@ -133,7 +147,8 @@ def extract_hotspots(root: Path, base: Path, states: list[str]) -> Path:
     for st in states:
         z = np.load(state_files(root, st).npz)
         xy, area, hmax, frames, t_h = z["xy"].astype(np.float64), z["area"].astype(np.float64), z["hmax"], z["frames"], z["t_h"]
-        near = np.stack([np.hypot(xy[:, 0] - hx[i], xy[:, 1] - hy[i]) <= NEAR_M for i in range(len(ids))])
+        # 区域没有客户热点（如 Mussafah 02 没有 HOTSPOT 图层）时 np.stack 空列表会报错：用 0 行掩膜，near.any 全 False，热点统计为空（不编热点）
+        near = np.stack([np.hypot(xy[:, 0] - hx[i], xy[:, 1] - hy[i]) <= NEAR_M for i in range(len(ids))]) if ids else np.zeros((0, len(xy)), dtype=bool)
         for i, h in enumerate(ids):
             stats[h][st] = {"near_200m": _zone_stats(area, hmax, frames, t_h, near[i])}
         total[st] = {"near_200m": _zone_stats(area, hmax, frames, t_h, near.any(axis=0))}
@@ -179,6 +194,12 @@ def extract(root: Path, only: list[str] | None = None) -> Path:
     hot["scopes"] = sim_scope.compute(root, base, hot)
     _dump(hp, hot)
     print(f"  口径 {len(hot['scopes'])} 个 → hotspots.json")
+    if engine_title(root):
+        from . import city_ponding
+        try:
+            city_ponding.prepare_rda_layout(root, base)
+        except SwwError as e:
+            print(f"  模拟积水点未生成（{e}）")
     return base
 
 
@@ -190,7 +211,7 @@ def import_all(root: Path, by: str | None = None, only: list[str] | None = None)
     keys = [s["key"] for s in json.loads((base / "states.json").read_text(encoding="utf-8"))["states"]]
     top = max((STATES[k][1] for k in keys), key=sim.LINE_ORDER.index)
     with sim.connect() as conn:
-        return sim_results.import_delivery(conn, base, by, line_key=top, extent=extent_of(root),
+        return sim_results.import_delivery(conn, base, by, line_key=top, extent=engine_title(root) or extent_of(root),
                                            variant_label=f"{len(keys)} states: {' / '.join(keys)}")
 
 

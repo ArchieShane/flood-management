@@ -47,11 +47,12 @@ WORKDIR /app
 COPY src/ ./src/
 COPY sql/ ./sql/
 COPY web/ /usr/share/flood-web/
+COPY viewer-web/ /usr/share/flood-web-viewer/
 COPY nginx.conf /etc/nginx/conf.d/flood.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
  && useradd --system --create-home --uid 10001 app \
- && mkdir -p /app/data/processed/sim_ponding \
+ && mkdir -p /app/data/processed/sim_ponding /viewer-data \
  && chown -R app /app/data/processed/sim_ponding
 
 EXPOSE 8080

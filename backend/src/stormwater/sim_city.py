@@ -89,6 +89,15 @@ LAYOUTS: dict[str, dict[str, Any]] = {
 }
 
 
+def engine_meta(root: Path) -> dict | None:
+    """engine（tools/run_region.py）写在交付根上的 outputs.json：有它就按它显示区域 / 网格 / 雨型 / 地形等标签，不用 ADM 全市交付写死的那套。"""
+    p = root / "outputs.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
 def layout_of(root: Path) -> str:
     """`adm`：态目录下有 `1D/` 与 `2D/*_2d.npz`；否则按中文布局（`一二维/`）。"""
     for sd in sorted(p for p in root.iterdir() if p.is_dir() and re.match(r"L\d", p.name)):
@@ -264,6 +273,10 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
         raise SwwError(f"{root} 下没有 {state} 的目录")
     lay = layout_of(root)
     L = LAYOUTS[lay]
+    E = engine_meta(root)
+    if E:       # engine 推演：网格、地形、状态名按这次的实际值
+        L = {**L, "cell_m": float(E["res_m"]), "model_res_m": float(E["res_m"]), "terrain": E["terrain"],
+             "labels": {**L["labels"], "L1": "Existing facilities (permanent)"}}
     if lay == "adm":
         d2, d1 = sd / "2D", sd / "1D"
         npz = _one(d2, "*_2d.npz")
@@ -348,13 +361,13 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
     _dump(out / "scenario.json", {
         "scope": "citywide",
         # 有管网覆盖的地面按客户汇水区 CN / Tc 产流注入一维；离井 > 46 m 的地面净雨直接下在二维上
-        "spatial_pattern": ("Service-area injection at nodes + direct rain on 2D" if lay == "adm"
+        "spatial_pattern": (E["spatial_pattern"] if E else "Service-area injection at nodes + direct rain on 2D" if lay == "adm"
                             else "Client catchments + direct rain on 2D"),
-        "rainfall_profile": {"profile_id": f"R{depth_mm:g}D{dur_h:g}",
-                             "provenance": {"temporal_assumption": "client Mussafah 1 h design storm shape" if lay == "adm"
+        "rainfall_profile": {"profile_id": E["tag"] if E else f"R{depth_mm:g}D{dur_h:g}",
+                             "provenance": {"temporal_assumption": E["rain_shape_label"] if E else "client Mussafah 1 h design storm shape" if lay == "adm"
                                             else "client 2 h design storm"}},
-        "outfall_mode": "free",
-        "outfall_level_m": None,
+        "outfall_mode": "fixed" if E else "free",
+        "outfall_level_m": E["outfall_level_m"] if E else None,
         "outfalls": [{"name": o[0], "type": o[1], "stage_m": o[2]} for o in outf],
         "start_time": None,
     })
@@ -377,6 +390,10 @@ def extract_state(root: Path, state: str, out: Path) -> dict[str, Any]:
         "solver": "ANUGA 2D + SWMM 5.2.4",
         "claim_boundary": (
             (
+                f"{state_label(state, lay)}：{E['title']} 区域一二维耦合：SWMM 5.2 + ANUGA 双向耦合（60 s 交换），非结构三角网 {g['n_tri']:,} 个单元（名义 {E['res_m']:g} m），"
+                f"{E['terrain']}；管网初始水量 25 %、出水口固定水位 {E['outfall_level_m']:g} m 并带拍门、地面糙率按下垫面分区；产流为子汇水区 SCS CN + 单位线，不在二维上直接下雨；"
+                "未标定、未经工程认可。L1 = 永久设施（数据里没有明确临时 / Planned 标注的一律 L1）。"
+            ) if E else (
                 f"{state_label(state, lay)}：阿布扎比全市整网 SWMM（改造后管网数据）与 ANUGA 双向耦合（60 s 交换），"
                 f"非结构三角网 {g['n_tri']:,} 个单元（约 100 m）、地形为 DTM 平均到 100 m，小尺度起伏（窄沟、路缘、小洼地）被抹平，"
                 f"演算 0 → {g['end_min'] / 60:g} h；产流为全市统一 SCS CN 82、Tc 30 min（数据集无汇水区图层），"
@@ -481,6 +498,8 @@ def extract(root: Path, only: list[str] | None = None) -> Path:
     for state in STATES:
         if only and state not in only:
             continue
+        if not only and _state_dir(root, state) is None:
+            continue            # 只有部分态的交付（如 engine 的 L1 单态推演）：没有的态不抽取，不报错
         extract_state(root, state, base / state)
     src = root / "对比_缺口分析" / "全市L1L2统计值.csv"
     if src.is_file():
@@ -515,8 +534,9 @@ def import_all(root: Path, by: str | None = None, only: list[str] | None = None)
     keys = [s["key"] for s in json.loads((base / "states.json").read_text(encoding="utf-8"))["states"]]
     top = max((STATES[k][1] for k in keys), key=sim.LINE_ORDER.index)
     with sim.connect() as conn:
-        return sim_results.import_delivery(conn, base, by, line_key=top, extent="City-wide",
-                                           variant_label=f"{len(keys)} states: {' / '.join(keys)}")
+        E = engine_meta(root.resolve())
+        return sim_results.import_delivery(conn, base, by, line_key=top, extent=E["title"] if E else "City-wide",
+                                           variant_label=("L1 (permanent facilities)" if E and keys == ["L1"] else f"{len(keys)} states: {' / '.join(keys)}"))
 
 
 def main() -> None:

@@ -16,22 +16,31 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { cancelSimulation, fetchSimulation, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
+import { cancelSimulation, fetchSimulationPondingGe, fetchHotspotCircleSeries, fetchPondingPointSeries, fetchRdaHotspotCircleSeries, fetchRdaPointSeries, fetchSimulation, fetchSimulationEquipment, fetchSimulationL2, fetchSimulationOptions, fetchSimulationPerf } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import ResultMap from '../components/sim/ResultMap.vue'
 import RunCompare from '../components/sim/RunCompare.vue'
+import BalancePanel from '../components/sim/BalancePanel.vue'
+import FacilityList from '../components/sim/FacilityList.vue'
+import OutputsPanel from '../components/sim/OutputsPanel.vue'
+import ParamsPanel from '../components/sim/ParamsPanel.vue'
 import LevelPanel from '../components/sim/LevelPanel.vue'
 import PerfPanel from '../components/sim/PerfPanel.vue'
 import RdaPanels from '../components/rda/RdaPanels.vue'
+import CityEquipment from '../components/sim/CityEquipment.vue'
+import PondingPointsPanel from '../components/sim/PondingPointsPanel.vue'
+import VolumeCurve from '../components/sim/VolumeCurve.vue'
+import PointCurveModal from '../components/sim/PointCurveModal.vue'
+import { usePondingPoints } from '../composables/usePondingPoints'
 import RunHyetograph from '../components/sim/RunHyetograph.vue'
 import RunSummary from '../components/sim/RunSummary.vue'
 import SimShell from '../components/sim/SimShell.vue'
 import { RDA_KEY, useRda } from '../composables/useRda'
 import { locale, t } from '../i18n'
-import { tr } from '../i18n/rda'
+import { tr, trj } from '../i18n/rda'
 import { useToastStore } from '../stores/toast'
 import { PERF_COLOR, perfClass, perfPopup } from '../utils/perf'
-import { analysisLabel, fmtInt, fmtWhen, stateCode, statusLabel } from '../utils/sim'
+import { analysisLabel, fmtInt, fmtLatLon, fmtWhen, stateCode, statusLabel } from '../utils/sim'
 
 const props = defineProps({ id: { type: String, required: true } })
 const route = useRoute()
@@ -87,21 +96,144 @@ const curState = computed(() => states.value?.find(s => s.key === stateKey.value
 /* ---- RD-A 全套成果（extent = RDA）：这条任务多出一组明细（积水点算法 / L3 派单 / 设施 / 判据 / 措施），
    不出「溢水点」「溢水量」——RD-A 有自己的积水点算法。数据与选中项在 useRda，和 /rda 页共用。 ---- */
 const isRda = computed(() => run.value?.extent === 'RDA')
+/** 全市任务（#100–102 / #561 / #1068）：总览只留总积水量 / 最大积水面积 / 最大积水深度 / 系统储水能力，
+    不出溢水点（图层 / 列表 / 个数）和溢水量，与 RD-A 一样 */
+const isCity = computed(() => !!run.value?.has_layers && (run.value?.extent === 'City-wide' || !!run.value?.has_ponding_points))   // engine 推演的区域任务（extent = region.toml 的 title，如 RD-A）有模拟积水点，同样按全市口径显示
+const isCity0 = computed(() => run.value?.extent === 'City-wide')   // 全市任务的设备在「应对设备配置」里，不用这张清单
+const hideOverflow = computed(() => isRda.value || isCity.value)
 const rdaState = computed(() => (isRda.value ? RDA_KEY[stateKey.value] || 'OPTCS2' : null))
 const rda = useRda(rdaState, { onError: msg => toast.show(msg, 'var(--red)') })
 const rdaTab = ref('ponding')
 const LEVEL_COLOR = { 关键: '#d9434b', 高: '#e0702e', 中: '#e0a44e', 无暴露: '#7a838c' }
+/* ---- 全市一二维任务（如 #1068 ADM 100 m）的模拟积水点：口径同 RD-A，数据与选中项在 usePondingPoints；
+   只有后端给了 points/ 的任务（run.has_ponding_points）才有，RD-A 自己走上面那套。 ---- */
+const ptsRunId = computed(() => (!isRda.value && run.value?.has_ponding_points ? run.value.id : null))
+const pts = usePondingPoints(ptsRunId, stateKey, { onError: msg => toast.show(msg, 'var(--red)') })
 const simPoints = computed(() => (isRda.value ? (rda.ponding.value?.points || []).map(p => ({
   id: p.id, lat: p.lat, lon: p.lon, vol: p.vol_peak_m3, color: LEVEL_COLOR[p.l3?.level] || '#d9434b',
   label: `${p.id} · ${p.hmax_m} m · ${Math.round(p.vol_peak_m3).toLocaleString('en-US')} m³`,
-})) : null))
+})) : pts.enabled.value ? pts.mapPoints.value : null))
+const simSelected = computed(() => (isRda.value ? rda.selPoint.value : pts.enabled.value ? pts.selPoint.value : null))
 watch(isRda, on => { if (on) { rda.ensureShared(); rda.loadState() } }, { immediate: true })
+/* ---- 点一个积水点弹出它的积水趋势（逐帧积水量 / 面积 / 最大水深）。两种点：
+   · point：模型算出的积水点。RD-A 按清单里这个点的经纬度取，全市按编号取；阈值用当前清单生效的那一套，曲线峰值才与列表一致。
+   · hotspot：用户关注的积水点（客户热点）。取它 200 m 圆内的逐帧过程，阈值用「圆内峰值积水量」那一栏正在用的，峰值与那一栏一致。
+   原来的地图弹窗、热点表、积水点详情卡片都照旧，趋势是在它们之上多弹一个框。 ---- */
+const curve = ref(null)   // { id, kind, loading, error, series }
+let curveSeq = 0
+const nf = (v, d = 2) => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: d }))
+/** 弹框里随曲线一起给的信息 = 原来点这个点时看到的那份：积水点是下面详情卡片（PondingTab）的内容，关注积水点是地图弹窗（ResultMap.hotPopup）的内容 */
+const curveFacts = computed(() => {
+  const c = curve.value
+  if (!c) return []
+  if (c.kind === 'hotspot') {
+    const h = (hotspots.value?.points || []).find(x => x.id === c.id)
+    if (!h) return []
+    const sts = hotspots.value?.states || []
+    const st = h.stats?.[sts.includes(stateKey.value) ? stateKey.value : sts[0]] || {}
+    const nr = st.near_200m || {}
+    const cat = st.catchment
+    const out = [[t('sim.hotspots.loc'), [h.district, h.criticality, h.location].filter(Boolean).join(' · ') || '—'],
+      [t('sim.hotspots.near'), `${nf(nr.max_depth_m)} m`]]
+    if (cat) {
+      out.push([t('sim.hotspots.a30'), `${nf(cat.area_ge_0_30_ha)} ha`],
+        [t('sim.hotspots.vol'), `${cat.max_volume_m3 == null ? '—' : fmtInt(cat.max_volume_m3)} m³（T+${nf(cat.max_volume_h)} h）`])
+    } else {
+      out.push([t('sim.hotspots.a30Near'), `${nf(nr.area_ge_0_30_ha)} ha`],
+        [t('sim.hotspots.volNear'), `${nr.max_volume_m3 == null ? '—' : fmtInt(nr.max_volume_m3)} m³${nr.t_max_depth_h == null ? '' : `（${t('sim.hotspots.deepestAt')} T+${nf(nr.t_max_depth_h)} h）`}`])
+    }
+    if (h.lat != null) out.push([t('sim.hotspots.coord'), fmtLatLon(h)])
+    return out
+  }
+  const p = ((isRda.value ? rda.ponding.value : pts.ponding.value)?.points || []).find(x => x.id === c.id)
+  if (!p) return []
+  const out = [
+    [tr('最大水深'), `${nf(p.hmax_m)} m（${tr('地面高程')} ${nf(p.ground_z_m)} m）${p.t_hmax_h != null ? `，${tr('出现在')} ${nf(p.t_hmax_h)} h` : ''}`],
+    [tr('面积'), `${fmtInt(p.area_m2)} m²（${tr('其中')} ≥0.30 m：${fmtInt(p.area_ge030_m2)} m²）`],
+  ]
+  if (p.area_peak_m2 != null) out.push([tr('最大积水面积'), `${fmtInt(p.area_peak_m2)} m²，${tr('出现在')} ${nf(p.t_area_peak_h)} h`])
+  out.push([tr('峰值积水量'), `${fmtInt(p.vol_peak_m3)} m³，${tr('出现在')} ${nf(p.t_peak_h)} h`], [tr('持续'), `${nf(p.duration_h)} h`],
+    [tr('退水'), p.receded ? `${tr('已退')} · ${tr('峰值后')} ${nf(p.recede_h)} h` : `${tr('未退')} · ${tr('到 {t} h 仍有 {v} m³', { t: p.t_end_h, v: fmtInt(p.vol_end_m3) })}`],
+    [tr('最近客户热点'), `${p.nearest_client_hotspot}（${fmtInt(p.nearest_client_hotspot_dist_m)} m）`],
+    [tr('200 m 内热点'), p.near_hotspots?.length ? p.near_hotspots.map(h => `${h.hotspot} ${h.dist_m} m`).join('、') : tr('无')])
+  if (p.l3) out.push([tr('结论'), tr(p.l3.verdict)], [tr('定级依据'), trj(p.l3.basis)], [tr('L3 手段'), tr(p.l3.measure)])
+  return out
+})
+async function openCurve(id, kind = 'point') {
+  const my = ++curveSeq
+  curve.value = { id, kind, loading: true, error: '', series: null }
+  try {
+    let s
+    if (kind === 'hotspot') {
+      s = isRda.value
+        ? await fetchRdaHotspotCircleSeries(rdaState.value, id, rda.buf.bp.value)
+        : await fetchHotspotCircleSeries(run.value.id, stateKey.value, id, pts.buf.bp.value)
+    } else if (isRda.value) {
+      const p = (rda.ponding.value?.points || []).find(x => x.id === id)
+      if (!p) throw new Error(t('sim.pointCurve.empty'))
+      const { depth, area, dur } = rda.pp.value
+      s = await fetchRdaPointSeries(rdaState.value, p.lon, p.lat, depth, area, dur)
+    } else {
+      const { depth, area, dur } = pts.pp.value
+      s = await fetchPondingPointSeries(run.value.id, stateKey.value, id, depth, area, dur)
+    }
+    if (my === curveSeq) curve.value.series = s
+  } catch (e) {
+    if (my === curveSeq) curve.value.error = e.message
+  } finally {
+    if (my === curveSeq) curve.value.loading = false
+  }
+}
+const closeCurve = () => { curveSeq++; curve.value = null }
+watch([() => props.id, stateKey], closeCurve)
+/** 面板里点行：地图飞过去（热点就飞到它并开原来的弹窗）；点的是积水点 / 关注积水点就再弹趋势 */
+function onLocate(e) {
+  if (e.kind === 'hotspot' && e.id) mapRef.value?.focusHotspot(e.id)
+  else if (e.lat != null && e.lon != null) mapRef.value?.flyToPoint(e.lat, e.lon)
+  if ((e.kind === 'point' || e.kind === 'hotspot') && e.id) openCurve(e.id, e.kind)
+}
 function onSimPoint(id) {
+  openCurve(id)
+  if (pts.enabled.value) {
+    pts.selPoint.value = id
+    document.querySelector('.sd-pts')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
   rdaTab.value = 'ponding'
   rda.selPoint.value = id
   document.querySelector('.sd-rda')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
-const setState = k => router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
+const setState = k => {
+  eqTab.value = null
+  router.replace({ query: { ...route.query, state: k === run.value?.state_default ? undefined : k } })
+}
+
+/* 全市应对设备配置：右上角的 L2 sugg / L3 两个按钮，和 L1 / L2 同一排；点哪个，右栏就显示哪一档，再点 L1 / L2 回到原来的右栏。
+   数据是成果目录里的两份文件，没有的任务（接口 404）不出按钮。 */
+const equip = ref(null)
+const eqTab = ref(null)   // null | 'fixed'（L2 sugg）| 'mobile'（L3）
+watch(() => [isCity.value, run.value?.id], async ([city, rid]) => {
+  equip.value = eqTab.value = null
+  if (!city || rid == null) return
+  try {
+    const x = await fetchSimulationEquipment(rid)
+    if (run.value?.id === rid) {
+      equip.value = x
+      if (['fixed', 'mobile'].includes(route.query.eq)) eqTab.value = route.query.eq   // 链接带 ?eq=fixed / mobile 直接打开这一档
+    }
+  } catch { /* 404 = 这个任务没有这份数据，不出按钮 */ }
+}, { immediate: true })
+/* 各态「水深 ≥ 15 cm」积水量（ponding_ge.json）：全市任务随 /equipment 下发，engine 推演的区域任务没有设备配置，单独取 */
+const pge = ref(null)
+watch(() => [isCity.value, run.value?.id], async ([city, rid]) => {
+  pge.value = null
+  if (!city || rid == null) return
+  try {
+    const x = await fetchSimulationPondingGe(rid)
+    if (run.value?.id === rid) pge.value = x
+  } catch { /* 404 = 没有 ponding_ge.json */ }
+}, { immediate: true })
+const pickEq = k => { eqTab.value = eqTab.value === k ? null : k }
 const stateTitle = s => stateCode(s.same_as ? t('sim.detail.sameAs', { label: s.label, as: s.same_as }) : s.label)
 watch(stateKey, () => {
   layerMeta.value = ponding.value = pondActive.value = hotspots.value = null
@@ -229,6 +361,7 @@ async function cancel() {
         <button @click="closePerf">{{ t('sim.detail.title', { id }) }}</button><span>/</span>{{ t('sim.perf.crumb') }}
       </h1>
       <h1 v-else class="sim-h1">{{ t('sim.detail.title', { id }) }}</h1>
+      <span v-if="run?.job_id" class="sim-tag sd-job" title="job_id">{{ run.job_id }}</span>
       <span v-if="perf && perfFit" class="sim-tag sd-variant">{{ stateCode(perfFit.base.label) }} vs {{ stateCode(perfFit.vs.label) }}</span>
       <span v-else-if="l2View && !planView && !(curState && !curState.same_as)" class="sim-tag sd-variant">{{ t('sim.l2.tag') }}</span>
       <span v-else-if="curState || run?.variant_label" class="sim-tag sd-variant">{{ curState ? stateTitle(curState) : stateCode(run.variant_label) }}</span>
@@ -247,11 +380,19 @@ async function cancel() {
       </div>
       <div v-else-if="run?.line_runs" class="sd-lines">
         <div v-if="states" class="sd-seg" role="tablist">
-          <button v-for="s in states" :key="s.key" role="tab" :class="{ on: s.key === stateKey }"
-                  :aria-selected="s.key === stateKey" :title="`${stateTitle(s)} · ${s.defence_line_label}`"
+          <button v-for="s in states" :key="s.key" role="tab" :class="{ on: s.key === stateKey && !eqTab }"
+                  :aria-selected="s.key === stateKey && !eqTab" :title="`${stateTitle(s)} · ${s.defence_line_label}`"
                   @click="setState(s.key)">
             {{ stateCode(s.key) }}
           </button>
+          <template v-if="equip">
+            <button role="tab" :class="{ on: eqTab === 'fixed' }" :aria-selected="eqTab === 'fixed'" :title="t('sim.equip.tabFixed', { p: `${(equip.fixed.inputs.volume_fixed_m3 / equip.fixed.inputs.remaining_ponding_after_L2_m3 * 100).toFixed(1)}%` })" @click="pickEq('fixed')">
+              {{ t('sim.equip.btnFixed') }}
+            </button>
+            <button role="tab" :class="{ on: eqTab === 'mobile' }" :aria-selected="eqTab === 'mobile'" :title="t('sim.equip.tabMobile', { p: `${(equip.fixed.inputs.volume_mobile_m3 / equip.fixed.inputs.remaining_ponding_after_L2_m3 * 100).toFixed(1)}%` })" @click="pickEq('mobile')">
+              {{ t('sim.equip.btnMobile') }}
+            </button>
+          </template>
         </div>
         <div v-else class="sd-seg" role="tablist">
           <button v-for="lr in lineTabs" :key="lr.defence_line_key" role="tab"
@@ -273,7 +414,7 @@ async function cancel() {
     </div>
 
     <div v-if="run?.has_layers && perf" class="sd-grid">
-      <ResultMap :key="`${run.id}|perf|${perfVs}`" :run-id="run.id" :state="perfVs" :ponding-state="states[0].key"
+      <ResultMap :key="`${run.id}|perf|${perfVs}`" :run-id="run.id" :state="perfVs" :ponding-state="states[0].key" :no-ledger="hideOverflow"
                  :pond-class="pondClass" :pond-popup="pondPopup" :pond-legend="pondLegend" :show-residual="false" fit-ponds
                  @hotspots="hotspots = $event" />
       <PerfPanel :data="perfFit" :error="perfErr" :rain="run.rain_label" :hotspots="hotspots" @h="setH" />
@@ -282,19 +423,41 @@ async function cancel() {
       <ResultMap ref="mapRef" :key="`${run.id}|${stateKey || ''}`" :run-id="run.id" :state="stateKey"
                  :l2-ponds="l2View && !states && l2?.ponds?.length ? l2.ponds : null"
                  :l2-note="isRda ? '' : planView ? t('sim.l2.mapNotePlan', { s: stateCode(stateKey) }) : l2View ? t(!states ? 'sim.l2.mapNote' : curState?.same_as ? 'sim.l2.mapNoteState' : 'sim.l2.mapNoteReal', { s: stateCode(stateKey) }) : ''"
-                 :no-overflow="isRda" :sim-points="simPoints" :sim-selected="rda.selPoint.value" @simpoint="onSimPoint"
+                 :no-overflow="hideOverflow" :no-ledger="hideOverflow" :no-pond-points="pts.enabled.value" :sim-points="simPoints" :sim-selected="simSelected" @simpoint="onSimPoint" @hotspotpick="openCurve($event, 'hotspot')"
                  @meta="layerMeta = $event" @ponding="onPonding" @active="pondActive = $event" @now="mapNow = $event" @hotspots="hotspots = $event" />
-      <RunCompare v-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
+      <!-- 全市：右上角点 L2 sugg（固定设施）/ L3（移动泵与罐车）时，右栏换成应对设备配置；点 L1 / L2 回到原来的右栏 -->
+      <CityEquipment v-if="isCity && equip && eqTab" :data="equip" :tab="eqTab" :rain-label="run.rain_label || ''" />
+      <RunCompare v-else-if="compare && !l2View && !planView" :run="run" :state="stateKey" :meta="layerMeta" :ponding="ponding"
                   @open="openLine" @state="setState" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
-      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="isRda"
-                  :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
+      <LevelPanel v-else :run="viewRun" :states="states" :state-key="stateKey" :l2-view="l2View" :meta="layerMeta" :no-overflow="hideOverflow" :no-pond-points="pts.enabled.value"
+                  :ponding="ponding" :active="pondActive" :now="mapNow" :hotspots="hotspots" :vol-ge="equip?.ponding_ge || pge" :city-ge="isCity0" @focus="mapRef?.focusPond($event)" @perf="openPerf" />
     </div>
     <RunCompare v-else-if="run && compare" class="sd-cmp-solo" :run="run" @open="openLine" />
 
+    <!-- 水量账 / 推演参数 / 成果数据位置：整行放在地图和总览下面，不进网格（总览吸顶，放进去滚动时会叠在它们上面） -->
+    <div v-if="run && !perf" class="sd-extra">
+      <FacilityList v-if="states && states.length > 1 && !isCity0" :run-id="run.id" :states="states" />
+      <BalancePanel v-if="states" :run-id="run.id" :states="states" />
+      <ParamsPanel :run-id="run.id" />
+      <OutputsPanel :run-id="run.id" />
+    </div>
+
+    <!-- RD-A / 全市：总积水量随时间的折线，随地图上选的态走 -->
+    <VolumeCurve v-if="(isRda || isCity) && run?.has_layers && !perf" :key="`${run.id}|${stateKey || ''}`"
+                 :run-id="run.id" :state="stateKey" :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" />
+
     <!-- RD-A：积水点算法 / L3 派单 / 设施 / 判据 / 措施，随地图上选的态走；点行在地图上定位 -->
     <section v-if="isRda && run?.has_layers && !perf" class="sim-card sd-rda">
-      <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="mapRef?.flyToPoint($event.lat, $event.lon)" />
+      <RdaPanels v-model:tab="rdaTab" :rda="rda" :label="curState?.label || ''" @locate="onLocate" />
     </section>
+
+    <!-- 全市一二维任务的模拟积水点：口径同 RD-A（阈值可调、热点覆盖率、最大值时刻），随地图上选的态走 -->
+    <section v-if="pts.enabled.value && run?.has_layers && !perf" class="sim-card sd-rda sd-pts">
+      <PondingPointsPanel :pts="pts" @locate="onLocate" />
+    </section>
+
+    <PointCurveModal v-if="curve" :id="curve.id" :kind="curve.kind" :facts="curveFacts" :series="curve.series" :loading="curve.loading" :error="curve.error"
+                     :rain-min="layerMeta?.model_configuration?.rainfall_duration_minutes ?? null" @close="closeCurve" />
 
     <div v-if="run && options" class="wiz-body" style="margin-top: 24px">
       <p v-if="!run.has_layers" class="sim-empty" style="padding-top: 0">{{ t('sim.detail.resultsPending') }}</p>
@@ -342,8 +505,10 @@ async function cancel() {
 <style scoped>
 /* 地图在左、总览在右；窄屏总览落到地图下面 */
 .sd-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; align-items: start; }
-.sd-grid > .ro { margin-top: 20px; position: sticky; top: 20px; }
+.sd-grid > .ro { margin-top: 20px; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }   /* 吸顶但不超过一屏，超出的在面板里滚 */
+.sd-extra { margin-top: 20px; display: flex; flex-direction: column; gap: 20px; }
 .sd-variant { background: var(--blue-bg); color: var(--blue-lt); }
+.sd-job { font-family: ui-monospace, monospace; opacity: 0.85; }
 .sd-rda { margin-top: 20px; padding: 4px 6px 10px; }
 .sd-lines { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .sd-seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); }
@@ -366,6 +531,6 @@ async function cancel() {
 .sd-cmp-solo { max-width: 560px; margin-top: 20px; }
 @media (max-width: 1280px) {
   .sd-grid { grid-template-columns: minmax(0, 1fr); }
-  .sd-grid > .ro { position: static; }
+  .sd-grid > .ro { position: static; max-height: none; overflow-y: visible; }
 }
 </style>

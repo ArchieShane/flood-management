@@ -35,6 +35,7 @@ function nextUser() {
         <AppIcon name="sliders" :size="20" />
       </RouterLink>
       <RouterLink class="nav" to="/rda" title="RD-A 全套成果"><AppIcon name="pulse" :size="20" /></RouterLink>
+      <a class="nav" href="/viewer/" title="推演成果（逐帧图）"><AppIcon name="grid" :size="20" /></a>
       <span class="nav off" :title="t('sim.nav.fleet')"><AppIcon name="truck" :size="20" /></span>
       <div class="spacer" />
       <button class="nav lang" :title="t('sim.nav.language')" @click="nextLocale">

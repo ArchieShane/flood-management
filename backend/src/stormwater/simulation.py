@@ -219,6 +219,7 @@ def list_runs(conn: psycopg.Connection, *, tab: str, user: str | None, lang: str
         r["extent"] = EXTENT_EN.get(r.get("extent"), r.get("extent"))
         r["variant_label"] = en_label(r["variant_label"])   # 数据名恒英文；库里的旧中文行读出时归一
         output_dir = r.pop("output_dir")
+        r["job_id"] = job_id_of(output_dir)
         # 防线口径取库里的值（write_defence_basis 写入）；老库还没回填的行现算兜底
         r["defence_basis"] = r["defence_basis"] or defence_basis(r["defence_line_key"], output_dir)
         # 全市任务（#100/101/102）已挂第二道现状（sim_l2），列表防线列按用户要求写第二道；
@@ -266,6 +267,13 @@ FORM_FIELDS = (
 )
 
 
+def job_id_of(output_dir: str | None) -> str | None:
+    """任务 id = 交付目录名（engine 的任务单 id，shp_dat/、flood2d_* 的 manifest、两个页面都用它）。旧数据没有任务单，也取目录名。"""
+    if not output_dir:
+        return None
+    return str(output_dir).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or None
+
+
 def get_run(conn: psycopg.Connection, run_id: int, lang: str) -> dict[str, Any]:
     col = "label_zh" if lang == "zh" else "label_en"
     row = conn.execute(
@@ -284,6 +292,7 @@ def get_run(conn: psycopg.Connection, run_id: int, lang: str) -> dict[str, Any]:
     row["variant_label"] = en_label(row.get("variant_label"))
     # 交付目录路径不外露，只告诉前端有没有结果图层（图层走 /layers 系列接口）
     output_dir = row.pop("output_dir", None)
+    row["job_id"] = job_id_of(output_dir)
     row["defence_basis"] = row.get("defence_basis") or defence_basis(row["defence_line_key"], output_dir)
     row["has_layers"] = bool(output_dir)
     row["has_l2"] = sim_l2.has_l2(row, output_dir)

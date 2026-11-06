@@ -52,10 +52,14 @@ NO_EFFECT = "这个任务不是多态成果，没有方案效果可比"
 NO_PROPOSED_PONDS = "没有拟建调蓄池数据"
 NO_HOTSPOTS = "这个任务没有积水点"
 NO_EQUIPMENT = "这个任务没有应对设备配置数据"
+NO_PONDING_GE = "这个任务没有各态积水量（ponding_ge.json）"
+NO_PIPES = "这个任务没有管线图层（pipes.geojson）"
+NO_PARAMS = "这个任务没有推演参数（params.json）"
+NO_OUTPUTS = "这个任务没有成果位置记录（outputs.json）"
 
 #: 拟建调蓄池（交付方给的选址方案，EPSG:32640 多边形），与具体任务无关，详情页按需叠加
 PROPOSED_PONDS_FILE = DATA_ROOT / "temp" / "proposed_ponds.geojson"
-MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS, NO_EQUIPMENT)
+MESSAGES = (NO_LAYERS, NO_FRAME, NO_PONDING, NO_RESIDUAL, NO_STATE, NO_EFFECT, NO_HOTSPOTS, NO_EQUIPMENT, NO_PONDING_GE, NO_PIPES, NO_PARAMS, NO_OUTPUTS)
 
 #: 全市应对设备配置（2026-10-28 交付）：放在成果目录根上的两个文件，第一档固定设施（L2 sugg，总水量 45%）、第二档移动泵与罐车（L3，20%）
 EQUIPMENT_FILES = {"fixed": "equipment_fixed.json", "mobile": "equipment_mobile.json"}
@@ -332,6 +336,75 @@ def equipment(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
         j = _load(ge)
         out["ponding_ge"] = {"threshold_m": j["threshold_m"], "volume_m3": j["volume_m3"]}
     return out
+
+
+def ponding_ge(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """各态「水深 ≥ 阈值」的积水量（成果目录根上的 `ponding_ge.json`，`sim_ponding_ge.py` 离线算的）：
+    页面的「需要排 → 可以排 → 排完剩余」模块用。没有这个文件的任务 404。"""
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    p = root / PONDING_GE_FILE
+    if DATA_ROOT.resolve() not in root.parents or not p.is_file():
+        raise sim.SimulationError(404, NO_PONDING_GE)
+    j = _load(p)
+    return {"threshold_m": j["threshold_m"], "volume_m3": j["volume_m3"]}
+
+
+def run_pipes(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """这次推演进模型的管线（成果目录根上的 `pipes.geojson`，engine 写的）：地图「雨水管网」开关画它。没有的任务 404。"""
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    p = root / "pipes.geojson"
+    if DATA_ROOT.resolve() not in root.parents or not p.is_file():
+        raise sim.SimulationError(404, NO_PIPES)
+    return _load(p)
+
+
+def run_outputs(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """这次推演的成果数据都在哪（engine 写在交付根上的 `outputs.json`：相对 NAS 根目录的路径、用的规则版本、怎么接着做 L2 sugg / L3），
+    加上同一区域（region）之前所有推演——以后要在某个汇水区上加 L2 sugg / L3，直接从这里找到它做过的 L1 及其成果。没有 outputs.json 的任务 404。"""
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    p = root / "outputs.json"
+    if DATA_ROOT.resolve() not in root.parents or not p.is_file():
+        raise sim.SimulationError(404, NO_OUTPUTS)
+    out = dict(_load(p))
+    same = []
+    for d in sorted(root.parent.iterdir()):
+        q = d / "outputs.json"
+        if d == root or not q.is_file():
+            continue
+        try:
+            o = _load(q)
+        except (OSError, ValueError):
+            continue
+        if o.get("region") != out.get("region"):
+            continue
+        rel = d.resolve().relative_to(DATA_ROOT.resolve()).as_posix()
+        r = conn.execute("select id from run where output_dir = %s", [rel]).fetchone()
+        same.append({"run_id": r["id"] if r else None, "job_id": o.get("job_id"), "tag": o.get("tag"), "rain_mm": o.get("rain_mm"), "dur_h": o.get("dur_h"),
+                     "states": o.get("states"), "generated_at": o.get("generated_at"), "paths": o.get("paths")})
+    out["same_region_runs"] = sorted(same, key=lambda x: (x["rain_mm"] or 0, x["dur_h"] or 0))
+    return out
+
+
+def run_params(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:
+    """本次推演的全部参数（成果目录根上的 `params.json`，engine 的 `tools/run_params.py` 写的）：
+    公共规则（带来源 / 出处）+ 本次运行的输入登记 + 规则与实际取值的一致性核对。页面「推演参数」模块用。没有就 404。"""
+    row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row is None:
+        raise sim.SimulationError(404, sim.NOT_FOUND)
+    root = (DATA_ROOT / _posix(row["output_dir"] or "")).resolve()
+    p = root / "params.json"
+    if DATA_ROOT.resolve() not in root.parents or not p.is_file():
+        raise sim.SimulationError(404, NO_PARAMS)
+    return _load(p)
 
 
 def hotspots(conn: psycopg.Connection, run_id: int) -> dict[str, Any]:

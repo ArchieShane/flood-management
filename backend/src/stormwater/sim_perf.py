@@ -550,6 +550,30 @@ def compute(root: Path, vs: str | None, h: float | None) -> dict[str, Any]:
     }
 
 
+def single(root: Path) -> dict[str, Any]:
+    """单态任务（engine 的 L1 单态推演）：没有可比的方案，只给总览要的本态数（页面 `LevelPanel` 读 columns / common_end_minutes / network.comparable）。"""
+    man = json.loads((root / "states.json").read_text(encoding="utf-8"))
+    st = man["states"][0]
+    d = (root / st["dir"]).resolve()
+    f = _state_facts(d)
+    dstore = _delivery_storage(root)
+    if st["key"] in dstore:
+        f.update(system_storage_m3=round(dstore[st["key"]], 1), system_storage_basis="delivery")
+    end = f["sim_end_minutes"]
+    for k in [k for k in f if k.startswith("_")]:
+        f.pop(k)
+    return {
+        "single": True,
+        "base": {"key": st["key"], "label": st["label"], "defence_line_key": st["defence_line_key"]},
+        "options": [], "common_end_minutes": end,
+        "window": {"base": _window(d, end)},
+        "network": {"base": f, "comparable": True},
+        "columns": [{"key": st["key"], "label": st["label"], "column": st.get("column") or st["defence_line_key"], "same_as": st.get("same_as"),
+                     "parent": None, "window": _window(d, end), "network": f}],
+        "points": [], "category_counts": {},
+    }
+
+
 @lru_cache(maxsize=16)
 def _cached(root: str, vs: str | None, h: float | None, stamp: tuple) -> str:
     return json.dumps(compute(Path(root), vs, h), ensure_ascii=False)
@@ -558,6 +582,9 @@ def _cached(root: str, vs: str | None, h: float | None, stamp: tuple) -> str:
 def load(root: Path, vs: str | None = None, h: float | None = None) -> dict[str, Any]:
     """进程内按「目录 + 各态摘要 mtime + vs + h」缓存；每次返回独立副本。"""
     root = root.resolve()
+    man = root / "states.json"
+    if man.is_file() and len(json.loads(man.read_text(encoding="utf-8"))["states"]) == 1:
+        return single(root)
     _, dirs = sim_effect._state_dirs(root)
     stamp = tuple(sorted((k, (d / "delivery_summary.json").stat().st_mtime) for k, d in dirs.items()))
     return json.loads(_cached(str(root), vs, h, stamp))

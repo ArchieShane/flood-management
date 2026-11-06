@@ -450,6 +450,46 @@ def get_hotspots(run_id: int, lang: str = Lang):
         raise _fail(exc, lang) from exc
 
 
+@router.get("/{run_id}/outputs")
+def get_outputs(run_id: int, lang: str = Lang):
+    """成果数据位置（相对 NAS 根目录）+ 同一区域之前的推演；没有 outputs.json 的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.run_outputs(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
+@router.get("/{run_id}/params")
+def get_params(run_id: int, lang: str = Lang):
+    """本次推演的全部参数（规则 + 输入登记 + 一致性核对）；没有 params.json 的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.run_params(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
+@router.get("/{run_id}/ponding-ge")
+def get_ponding_ge(run_id: int, lang: str = Lang):
+    """各态「水深 ≥ 阈值」的积水量（页面的「需要排 → 可以排 → 排完剩余」模块）；没有 ponding_ge.json 的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.ponding_ge(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
+@router.get("/{run_id}/pipes")
+def get_pipes(run_id: int, lang: str = Lang):
+    """这次推演进模型的管线（GeoJSON，WGS84）；地图「雨水管网」开关用。没有 pipes.geojson 的任务 404。"""
+    try:
+        with sim.connect() as conn:
+            return sim_results.run_pipes(conn, run_id)
+    except sim.SimulationError as exc:
+        raise _fail(exc, lang) from exc
+
+
 @router.get("/{run_id}/equipment")
 def get_equipment(run_id: int, lang: str = Lang):
     """全市应对设备配置：第一档固定设施（L2 sugg，45%）与第二档移动泵 + 罐车（L3，20%）的各场景数量；没有这两个文件的任务 404。"""
@@ -533,7 +573,8 @@ def get_state_perf(run_id: int, vs: str | None = Query(None, description="方案
     except sim.SimulationError as exc:
         raise _fail(exc, lang) from exc
     for k in ("base", "vs"):
-        body[k]["label"] = tr(body[k]["label"], lang)
+        if k in body:        # 单态任务（sim_perf.single）没有 vs
+            body[k]["label"] = tr(body[k]["label"], lang)
     for o in body["options"]:
         o["label"] = tr(o["label"], lang)
     for c in body["columns"]:

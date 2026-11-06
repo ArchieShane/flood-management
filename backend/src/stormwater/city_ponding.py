@@ -85,6 +85,14 @@ def _ledger_adm_ids() -> list[str]:
         return [r["uid"] for r in csv.DictReader(f) if r["source"] == "ADM"]
 
 
+def _delivery_adm_ids(root: Path) -> list[str]:
+    """台账 csv 不在时（engine 推演的区域交付）用交付自带的全部客户热点 `common/hotspots_all.json`（506 个，域内 / 域外都有）。"""
+    p = root / "common" / "hotspots_all.json"
+    if not p.is_file():
+        return []
+    return [h["hotspot_id"] for h in json.loads(p.read_text(encoding="utf-8"))]
+
+
 def _norm_adm(x: str) -> str:
     """交付写 `ADM-1`，台账写 `ADM-001`：统一补零再比。"""
     m = re.fullmatch(r"ADM-0*(\d+)", x.strip())
@@ -227,7 +235,7 @@ def prepare(root: Path) -> Path:
         "zones": zones, "total": total, "scopes": scopes,
     }, ensure_ascii=False), encoding="utf-8")
     have = {_norm_adm(p["id"]) for p in pts}
-    outside = [a for a in _ledger_adm_ids() if a not in have]
+    outside = [a for a in (_ledger_adm_ids() or _delivery_adm_ids(root)) if _norm_adm(a) not in have]
     (base / SOURCE_FILE).write_text(json.dumps({
         "schema": "flood_management.city_ponding_source.v1",
         "delivery": root.name, "n_tri": n_tri, "states": states, "mesh_edges": "mesh_edges.npy",
@@ -235,6 +243,71 @@ def prepare(root: Path) -> Path:
         "note": "热点取交付 common/hotspots.json（台账 ADM 在二维计算域内的）；outside_domain 是台账里不在域内的，只列不算",
     }, ensure_ascii=False), encoding="utf-8")
     print(f"  points：{len(states)} 态｜{n_tri:,} 单元｜网格邻接 {np.load(edges_p).shape[0]:,} 条｜热点 {len(pts)}｜域外 {len(outside)}")
+    return base
+
+
+def prepare_rda_layout(root: Path, out: Path) -> Path:
+    """engine 推演的多态交付（RD-A 全套成果布局：`公共/` + `<态>/一二维/`，`outputs.json` 的 layout = rda_multi_state）的模拟积水点。
+    和 `prepare` 同一套口径，只是态目录和文件名不同：npz = `<态>/一二维/*_二维结果.npz`，.sww = 同目录 `*_二维水深与流速时序.sww`，
+    热点取 `公共/客户热点.geojson`，逐态热点统计取 `sim_rda.extract` 已经写好的 `<out>/hotspots.json`（不覆盖它）。
+    态 key 用 sim_c1 的（L1 / L2 / L2+planned），和页面、`states.json` 一致。`out` = `sim_deliveries/<键>`。"""
+    from . import sim_c1
+
+    root = root.resolve()
+    base = out / POINTS_DIR
+    base.mkdir(parents=True, exist_ok=True)
+    states: dict[str, str] = {}
+    n_tri = None
+    sww = None
+    for st in sim_c1.present_states(root):
+        sd = sim_c1._state_dir(root, st)
+        npz = sim_c1.state_files(root, st).npz
+        with np.load(npz) as z:
+            n = int(z["area"].shape[0])
+        if n_tri not in (None, n):
+            raise SwwError(f"{st} 的单元数 {n} 与前一态 {n_tri} 不同，各态不是同一张网")
+        n_tri = n
+        fn = f"{st.replace('+', '_')}_2d.npz"
+        _link(npz, base / fn)
+        states[st] = fn
+        hits = [p for p in (sd / "一二维").glob("*_二维水深与流速时序.sww") if not p.name.startswith("._")]
+        sww = sww or (hits[0] if hits else None)
+    if not states:
+        raise SwwError(f"{root} 下没有可用的态目录")
+    if sww is None:
+        raise SwwError("交付里没有 .sww，连不了片也量不了边界距离")
+    edges, tri_xy = _mesh_from_sww(sww)
+    if int(edges.max()) >= n_tri or len(tri_xy) != n_tri:
+        raise SwwError(".sww 的网格与 npz 的单元数对不上")
+    with np.load(base / next(iter(states.values()))) as z:
+        off = np.hypot(*(tri_xy.mean(1) - z["xy"].astype(np.float64)).T)
+    if float(np.median(off)) > 2.0:
+        raise SwwError(f".sww 三角形形心与 npz 单元坐标对不上（中位偏差 {np.median(off):.1f} m）")
+    np.save(base / "mesh_edges.npy", edges)
+    np.save(base / "mesh_tri.npy", tri_xy)
+    feats = json.loads((root / "公共" / "客户热点.geojson").read_text(encoding="utf-8"))["features"]
+    lon = np.array([f["geometry"]["coordinates"][0] for f in feats], float)
+    lat = np.array([f["geometry"]["coordinates"][1] for f in feats], float)
+    hx, hy = rda._lonlat_to_utm40(lon, lat)
+    old = {}
+    hp = out / "hotspots.json"
+    if hp.is_file():
+        old = {p["id"]: p.get("stats", {}) for p in json.loads(hp.read_text(encoding="utf-8")).get("points", [])}
+    pts = []
+    for i, f in enumerate(feats):
+        pr = f["properties"]
+        hid = pr["hotspot_id"]
+        pts.append({"id": hid, "area": pr.get("area"), "location": pr.get("location"), "criticality": pr.get("criticality"),
+                    "x": float(hx[i]), "y": float(hy[i]), "lon": round(float(lon[i]), 6), "lat": round(float(lat[i]), 6),
+                    "stats": {st: v.get("near_200m", v) for st, v in old.get(hid, {}).items()}})
+    have = {_norm_adm(p["id"]) for p in pts}
+    outside = [a for a in (_ledger_adm_ids() or _delivery_adm_ids(root)) if _norm_adm(a) not in have]
+    (base / SOURCE_FILE).write_text(json.dumps({
+        "schema": "flood_management.city_ponding_source.v1", "delivery": root.name, "n_tri": n_tri, "states": states,
+        "mesh_edges": "mesh_edges.npy", "hotspots": pts, "outside_domain": outside,
+        "note": "engine 推演的多态交付：热点取 公共/客户热点.geojson（台账 ADM 在二维计算域内的）；积水点从各态自己的二维结果现算（不读固定的 AECOM RD-A 成果）",
+    }, ensure_ascii=False), encoding="utf-8")
+    print(f"  points：{len(states)} 态｜{n_tri:,} 单元｜网格邻接 {edges.shape[0]:,} 条｜热点 {len(pts)}｜域外 {len(outside)}")
     return base
 
 

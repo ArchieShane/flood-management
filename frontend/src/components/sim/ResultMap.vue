@@ -20,13 +20,12 @@
    多态任务的实算态另按态取 /layers/storage：模型里的蓄水单元（全市 #561 是台账塘）+ 接它们的管 / 泵与方案新增连接
    粗线（按管径加粗，点开看报告峰值流量），周边 300 m 管网细灰线作背景。规划态后端只给相对父态新增的
    设施与连接（原有泵站、周边既有管网不画）。
-   叠加层「拟建调蓄池」：/layers/proposed-ponds，与任务无关的选址方案多边形；点按钮才取，打开时飞到池子一带。
    叠加层「雨水管网」：/api/network（与指挥中心同一份落图线），默认关；打开才取干管，放大到街区尺度再取支管，
    取过的在模块级缓存里，换态 / 换任务不重取。蓝阶水深上看不清蓝线，这里改用橙棕四级。 */
 import L from 'leaflet'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
-import { fetchNetwork, fetchProposedPonds, fetchSimulationFacilities, fetchSimulationFrame, fetchSimulationHotspots, fetchSimulationStorage, fetchSimulationLayers, fetchSimulationMaxDepth, fetchSimulationPonding, fetchSimulationResidual, fetchSimulationTimeline } from '../../api'
+import { fetchNetwork, fetchSimulationPipes, fetchSimulationFacilities, fetchSimulationFrame, fetchSimulationHotspots, fetchSimulationStorage, fetchSimulationLayers, fetchSimulationMaxDepth, fetchSimulationPonding, fetchSimulationResidual, fetchSimulationTimeline } from '../../api'
 import { BASEMAPS, MECHANISM_COLOR, NETWORK_ORDER, RESIDUAL_COLOR } from '../../constants'
 import { locale, t } from '../../i18n'
 import { esc } from '../../utils/format'
@@ -56,11 +55,14 @@ const props = defineProps({
   // RD-A 全套成果：有自己的积水点算法（SIM 编号，见 RdaPanels），不再出「溢水点」及其溢水量；
   // simPoints = 算法给的积水点 [{ id, lat, lon, vol, color }]，画在这里，点圆点往外抛 simpoint
   noOverflow: { type: Boolean, default: false },
+  // 全市一二维任务（#1068）：模拟积水点已替代「溢水点」，只藏溢水点（图层 / 列表 / 个数），溢水量照出
+  noPondPoints: { type: Boolean, default: false },
+  noLedger: { type: Boolean, default: false },      // RD-A / 全市：不出「台账全部积水点」开关和图层
   simPoints: { type: Array, default: null },
   simSelected: { type: String, default: null },
 })
 /** 取回的图层元数据与积水片区往外抛一份，详情页右侧总览（RunOverview）直接用，不再重复请求 */
-const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots', 'simpoint'])
+const emit = defineEmits(['meta', 'ponding', 'active', 'l2active', 'now', 'hotspots', 'simpoint', 'hotspotpick'])
 
 /** 分档着色：**水越深颜色越深**（单色蓝阶，浅蓝 → 藏青）。
  *  原先是暗底图上「越深越亮」，用户会把深色格误读成积水点；深色要看得出，底图因此换成浅灰。 */
@@ -116,11 +118,6 @@ let resLayer = null
 const resMarkers = new Map()  // 名次 → 代表点 marker
 const RES_MARKED = 20
 
-const proposed = shallowRef(null)
-const propOn = ref(false)
-const propLoading = ref(false)
-let propLayer = null
-const PROPOSED_COLOR = '#2CA02C'
 
 const frameList = computed(() => meta.value?.frames || [])
 const rainMin = computed(() => meta.value?.model_configuration?.rainfall_duration_minutes ?? null)
@@ -135,17 +132,10 @@ const fmtClock = min => {
 const fmtKm2 = m2 => (m2 == null ? '—' : fmtKm2Num(m2 / 1e6))
 const fmtM = x => (x == null ? '—' : Number(x).toFixed(2))
 
+// 最大水深模式只展示最大水深（积水面积、模拟结束仍积水、管网溢出进地表等指标不再展示）
 const stats = computed(() => {
   const r = meta.value?.results || {}
-  return [
-    ['maxDepth', `${fmtM(r.maximum_depth_m)} m`],
-    // sww 多态交付：同一时刻的最大积水面积（三角形 ≥ 2 cm，交付口径）；下面两行是全程出现过积水的格并集
-    ...(r.peak_inundated_area_m2 != null ? [['areaPeak', `${fmtKm2(r.peak_inundated_area_m2)} km²`]] : []),
-    ['area01', `${fmtKm2(r.inundated_area_ge_0_01m2)} km²`],
-    ['area05', `${fmtKm2(r.inundated_area_ge_0_05m2)} km²`],
-    ['finalArea', `${fmtKm2(r.final_inundated_area_ge_0_01m2)} km²`],
-    ...(props.noOverflow ? [] : [['overflowVol', `${fmtInt(Math.round(meta.value?.coupling?.total_swmm_to_anuga_m3 ?? 0))} m³`]]),
-  ]
+  return [['maxDepth', `${fmtM(r.maximum_depth_m)} m`]]
 })
 
 /** 本帧当前值（只在时间过程下）：timeline 有的取 timeline（sww 交付是三角形 ≥ 2 cm，与「最大积水面积」同口径），
@@ -164,6 +154,7 @@ const now = computed(() => {
     area_basis: tri ? 'triangle' : 'cell',
     area_m2: tri ? tl.wet_area_m2[i] : n * cellKm2.value * 1e6,
     depth_m: tri ? tl.max_depth_m[i] : n ? Math.max(...f.depth_m) : 0,
+    volume_m3: tl?.volume_m3?.[i] ?? null,
     overflow_m3: tl?.overflow_cum_m3?.[i] ?? null,
     overflow_basis: tl?.overflow_basis ?? null,
     ponding: tl?.ponding_lit?.[i] ?? pondLit.value,
@@ -179,7 +170,7 @@ const nowStats = computed(() => {
   return [
     ['now', fmtClock(x.time_minutes)],
     ...(props.noOverflow ? [] : [
-      ['pondNow', x.ponding == null ? '—' : `${x.ponding}${x.ponding_total != null ? ` / ${x.ponding_total}` : ''}`],
+      ...(props.noPondPoints ? [] : [['pondNow', x.ponding == null ? '—' : `${x.ponding}${x.ponding_total != null ? ` / ${x.ponding_total}` : ''}`]]),
       ['overflowNow', x.overflow_m3 == null ? '—' : `${fmtInt(Math.round(x.overflow_m3))} m³`],
     ]),
     [x.area_basis === 'triangle' ? 'areaNowTri' : 'areaNowCell', `${fmtKm2(x.area_m2)} km²`],
@@ -341,7 +332,7 @@ function focusPond(rank, fly = true) {
 /** 溢水点单独取：首次要现算（全市 250 m 约 6 s），不挡水深图层。成因文案随语言，切语言重取。 */
 async function loadPonding() {
   pondErr.value = ''
-  if (props.noOverflow) { emit('ponding', null, ''); return }
+  if (props.noOverflow || props.noPondPoints) { emit('ponding', null, ''); return }
   try {
     const p = await fetchSimulationPonding(props.runId, props.pondingState || props.state)
     ponding.value = p
@@ -443,60 +434,6 @@ watch(resOn, on => {
   on ? resLayer.addTo(map) : resLayer.remove()
 })
 
-/* ---------------- 拟建调蓄池 ---------------- */
-
-function propTip(pr) {
-  const v = x => (x == null ? '—' : esc(String(x)))
-  const n = x => (x == null ? '—' : fmtInt(x))
-  return `<b>${t('sim.proposed.tip', { id: v(pr.pond) })}</b><br>` +
-    `${t('sim.proposed.design')} ${n(pr.design_volume_m3)} m³ ｜ ${t('sim.proposed.peak')} ${n(pr.peak_stored_m3)} m³<br>` +
-    `${t('sim.proposed.flood')} ${n(pr.cluster_flood_m3_2026)} m³ ｜ ${t('sim.proposed.structures')} ${n(pr.flooded_structures)}<br>` +
-    `${t('sim.proposed.size', { side: v(pr.top_side_m), area: n(pr.top_area_m2), depth: v(pr.depth_m), slope: v(pr.side_slope_hv) })}<br>` +
-    `${t('sim.proposed.invert')} ${v(pr.invert_m)} m<br>` +
-    `${t('sim.proposed.intake', { id: v(pr.main_intake), d: v(pr.distance_to_intake_m), n: v(pr.intakes) })}<br>` +
-    `${t('sim.proposed.pipe', { dn: v(pr.connecting_pipe_dn_mm), len: n(pr.connecting_pipe_m) })}`
-}
-
-function drawProposed(geo) {
-  propLayer = L.layerGroup()
-  L.geoJSON(geo, {
-    style: { color: PROPOSED_COLOR, weight: 2, opacity: 1, fillColor: PROPOSED_COLOR, fillOpacity: 0.35 },
-    onEachFeature: (f, layer) => layer.bindTooltip(propTip(f.properties), { sticky: true, className: 'rm-tip' }),
-  }).addTo(propLayer)
-  // 池子只有几十米见方，全市尺度下看不见：每个池子再挂一个带编号的标记
-  for (const f of geo.features) {
-    const c = L.geoJSON(f).getBounds().getCenter()
-    L.marker(c, {
-      icon: L.divIcon({ className: 'rm-prop', html: `<span>${esc(f.properties.pond || '')}</span>`, iconSize: [44, 20] }),
-      zIndexOffset: 1500,
-    }).bindTooltip(propTip(f.properties), { className: 'rm-tip', direction: 'top', offset: [0, -10] }).addTo(propLayer)
-  }
-}
-
-async function toggleProposed() {
-  if (propOn.value) {
-    propOn.value = false
-    propLayer?.remove()
-    return
-  }
-  if (!proposed.value) {
-    propLoading.value = true
-    try {
-      proposed.value = await fetchProposedPonds()
-      drawProposed(proposed.value)
-    } catch (e) {
-      error.value = e.message
-      return
-    } finally {
-      propLoading.value = false
-    }
-  }
-  propOn.value = true
-  propLayer.addTo(map)
-  const b = L.geoJSON(proposed.value).getBounds()
-  if (b.isValid()) map.flyToBounds(b, { padding: [40, 40], maxZoom: 16, duration: 0.6 })
-}
-
 /* ---------------- 雨水管网 ---------------- */
 
 /** 结果地图是浅底 + 蓝阶水深，指挥中心那套青蓝管线会糊进水里，改橙棕；粗细层级照旧 */
@@ -512,10 +449,28 @@ const netLoading = ref(false)
 const netErr = ref('')
 let netLayer = null
 
+/** 这次推演自己的管线（pipes.geojson，engine 写的）：有就画它、可点看属性；没有再退回全市管网落图线 */
+const ownPipes = shallowRef(null)
+let ownTried = null
+async function loadOwnPipes() {
+  if (ownTried === props.runId) return
+  ownTried = props.runId
+  try { ownPipes.value = await fetchSimulationPipes(props.runId) } catch { ownPipes.value = null }
+}
+function drawOwnPipes() {
+  const stage = f => f.properties['设施阶段']
+  netLayer = L.geoJSON(ownPipes.value, {
+    style: f => (stage(f) === 'Planned' ? { color: '#f59e0b', weight: 3, dashArray: '6 4' } : { color: '#5b8def', weight: 2.5, opacity: 0.9 }),
+    onEachFeature: (ft, l) => l.bindPopup(`<div class="pf-pop"><h4>管线 ${esc(ft.properties['编号'])}</h4><div class="kv">${
+      ['管径 mm', '管长 m', '管材', '状态', '设施阶段'].map(k => kvRow(esc(k), esc(String(ft.properties[k] ?? '—')))).join('')}</div></div>`, { className: 'rm-pop', minWidth: 200, maxWidth: 300 }),
+  }).addTo(map)
+}
+
 function drawNetwork() {
   netLayer?.remove()
   netLayer = null
   if (!map || !netOn.value) return
+  if (ownPipes.value) { drawOwnPipes(); return }
   const { mains, laterals } = net.value
   if (!mains) return
   const z = map.getZoom()
@@ -546,7 +501,11 @@ async function loadNetLayer(layer) {
   }
 }
 
-watch(netOn, on => (on ? loadNetLayer('mains').then(drawNetwork) : drawNetwork()))
+watch(netOn, async on => {
+  if (on) await loadOwnPipes()
+  if (on && !ownPipes.value) await loadNetLayer('mains')
+  drawNetwork()
+})
 watch(net, drawNetwork)
 
 /* ---------------- 储水设施：已建成调蓄塘（第二道现状）/ 各态模型蓄水单元 ---------------- */
@@ -745,10 +704,31 @@ const hotMarkers = new Map()   // 积水点号 → marker
 /** 当前态的统计；没有这一态（态清单之外）取第一态，数字不串态 */
 const hotState = computed(() => (hot.value?.states || []).includes(props.state) ? props.state : hot.value?.states?.[0])
 
+/** 热点很多（全市 470 个）时不画带编号的药丸，改画按「交付统计的积水等级」着色的小圆点，编号放悬浮提示里 */
+const HOT_MANY = 100
+const HOT_CLASS_COLOR = { flooded: '#d9434b', shallow: '#e0a44e', no: '#868e96' }
+
 function hotPopup(p) {
   const st = p.stats?.[hotState.value] || {}
   const n = (x, d = 2) => (x == null ? '—' : Number(x).toFixed(d))
   const c = st.catchment || {}
+  const nr = st.near_200m || {}
+  if (p.outside) {
+    // 台账里有、但不在二维计算域内：没有仿真结果，只给位置
+    return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}${p.criticality ? ` · ${esc(p.criticality)}` : ''}<br>` +
+      `<span style="opacity:.75">${esc(p.location || '')}</span><br>` +
+      `<span style="opacity:.75">${t('sim.hotspots.outside')}</span><br>${fmtLatLon(p)}`
+  }
+  if (!st.catchment) {
+    // 没有汇水区统计（全市交付）：面积 / 积水量取离热点 200 m 内单元的统计
+    return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}${p.criticality ? ` · ${esc(p.criticality)}` : ''}<br>` +
+      `<span style="opacity:.75">${esc(p.location || '')}</span><br>` +
+      `${t('sim.hotspots.near')}：${n(nr.max_depth_m)} m<br>` +
+      `${t('sim.hotspots.a30Near')}：${n(nr.area_ge_0_30_ha)} ha<br>` +
+      `${t('sim.hotspots.volNear')}：${nr.max_volume_m3 == null ? '—' : fmtInt(nr.max_volume_m3)} m³` +
+      `${nr.t_max_depth_h == null ? '' : `（${t('sim.hotspots.deepestAt')} T+${n(nr.t_max_depth_h, 2)} h）`}<br>` +
+      `${fmtLatLon(p)}`
+  }
   return `<b>${esc(p.id)}</b> · ${esc(p.district || '')}<br>` +
     `<span style="opacity:.75">${esc(p.location || '')}</span><br>` +
     `${t('sim.hotspots.near')}：${n(st.near_200m?.max_depth_m)} m<br>` +
@@ -778,13 +758,18 @@ function drawHot() {
       interactive: false,
     }).addTo(hotLayer)
   }
+  const many = hot.value.points.length > HOT_MANY
   for (const p of hot.value.points) {
-    const m = L.marker([p.lat, p.lon], {
-      icon: L.divIcon({ className: 'rm-hot', html: `<span>${esc(p.id.replace(/^[A-Z]{3}-/, ''))}</span>`, iconSize: [34, 22] }),
-      zIndexOffset: 3000,
-    })
+    const cls = p.stats?.[hotState.value]?.near_200m?.class
+    const m = many
+      ? L.circleMarker([p.lat, p.lon], { radius: 5, weight: 1.2, color: '#fff', fillColor: HOT_CLASS_COLOR[cls] || '#868e96', fillOpacity: 0.95 })
+        .bindTooltip(esc(p.id.replace(/^[A-Z]{3}-/, '')), { direction: 'top', offset: [0, -4] })
+      : L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: 'rm-hot', html: `<span>${esc(p.id.replace(/^[A-Z]{3}-/, ''))}</span>`, iconSize: [34, 22] }),
+        zIndexOffset: 3000,
+      })
     m.bindPopup(() => hotPopup(p), { className: 'rm-pop', minWidth: 220, maxWidth: 300, offset: [0, -6] })
-    m.on('click', () => (hotActive.value = p.id))
+    m.on('click', () => { hotActive.value = p.id; if (!p.outside) emit('hotspotpick', p.id) })   // 域外点没有圆内曲线； 弹窗照开，另抛出去让详情页弹圆内积水趋势
     m.addTo(hotLayer)
     hotMarkers.set(p.id, m)
   }
@@ -794,7 +779,8 @@ watch([hot, hotOn, hotCatchOn, () => props.state, locale], drawHot)
 
 /* 台账登记的全部积水点：交付统计的那几个（上面的「关注积水点」）以外的点画成小灰点，关注点不重复画 */
 const ledgerOn = ref(false)
-const ledgerPts = computed(() => hot.value?.ledger_points || [])
+/** RD-A、全市任务不出「台账全部积水点」：关注积水点（交付的热点）已经是全部，两层会冲突（`noLedger`） */
+const ledgerPts = computed(() => (props.noLedger ? [] : hot.value?.ledger_points || []))
 let ledgerLayer = null
 
 function ledgerPopup(p) {
@@ -902,7 +888,7 @@ watch(mode, m => {
 onMounted(async () => {
   initMap()
   drawSim()
-  map.on('zoomend', () => netOn.value && drawNetwork())
+  map.on('zoomend', () => netOn.value && !ownPipes.value && drawNetwork())
   drawL2()
   try {
     const [m, geo] = await Promise.all([fetchSimulationLayers(props.runId, props.state), fetchSimulationMaxDepth(props.runId, props.state)])
@@ -928,23 +914,42 @@ onMounted(async () => {
 /* ---------------- 积水点算法的点（RD-A） ---------------- */
 const simOn = ref(true)
 let simLayer = null
+let prevSimSel = null
+const simMarkers = new Map()   // 积水点号 → circleMarker，选中变化时只重画被点的那两个
+/** 点很多（全市几千个）时圆点画小、描边细；few 个点（RD-A）照旧 */
+const simStyle = (p, sel, many) => ({
+  radius: sel ? 11 : many ? Math.max(3, Math.min(10, 2.5 + Math.sqrt((p.vol || 0) / 150))) : Math.max(5, Math.min(12, 4 + Math.sqrt((p.vol || 0) / 60))),
+  color: sel ? '#4786c9' : '#fff', weight: sel ? 3 : many ? 0.8 : 1.5, fillColor: p.color || '#d9434b', fillOpacity: many ? 0.85 : 0.95,
+})
 function drawSim() {
   simLayer?.remove()
   simLayer = null
+  simMarkers.clear()
   if (!map || !props.simPoints?.length || !simOn.value) return
   simLayer = L.layerGroup()
-  for (const p of props.simPoints) {
-    const sel = p.id === props.simSelected
-    const m = L.circleMarker([p.lat, p.lon], {
-      radius: sel ? 11 : Math.max(5, Math.min(12, 4 + Math.sqrt((p.vol || 0) / 60))),
-      color: sel ? '#4786c9' : '#fff', weight: sel ? 3 : 1.5, fillColor: p.color || '#d9434b', fillOpacity: 0.95,
-    }).addTo(simLayer)
+  const many = props.simPoints.length > 300
+  // 先画没有 near 标记的，再画 near（在热点 200 m 内）的，红点盖在橙点上面
+  const pts = many ? [...props.simPoints].sort((a, b) => Number(!!a.near) - Number(!!b.near)) : props.simPoints
+  for (const p of pts) {
+    const m = L.circleMarker([p.lat, p.lon], simStyle(p, p.id === props.simSelected, many)).addTo(simLayer)
     m.bindTooltip(p.label || p.id, { className: 'rm-tip' })
     m.on('click', () => emit('simpoint', p.id))
+    simMarkers.set(p.id, m)
   }
   simLayer.addTo(map)
+  prevSimSel = props.simSelected
 }
-watch(() => [props.simPoints, props.simSelected, simOn.value], drawSim)
+watch(() => [props.simPoints, simOn.value], drawSim)
+watch(() => props.simSelected, sel => {
+  // 只改前后两个点的样式；整张重画几千个点会卡
+  const many = (props.simPoints?.length || 0) > 300
+  for (const id of [prevSimSel, sel]) {
+    const m = id && simMarkers.get(id)
+    const p = m && props.simPoints.find(x => x.id === id)
+    if (m && p) { m.setStyle(simStyle(p, id === sel, many)); m.setRadius(simStyle(p, id === sel, many).radius); if (id === sel) m.bringToFront() }
+  }
+  prevSimSel = sel
+})
 /** 飞到某个坐标（方案效果卡片点名时用：那边的点号是基线态的，和当前态的溢水点号对不上） */
 function flyToPoint(lat, lon) {
   if (map && lat != null) map.flyTo([lat, lon], Math.max(map.getZoom(), 16), { duration: 0.6 })
@@ -966,7 +971,7 @@ onBeforeUnmount(() => {
         <button :class="{ on: mode === 'max' }" @click="mode = 'max'">{{ t('sim.map.modeMax') }}</button>
         <button :class="{ on: mode === 'time' }" @click="mode = 'time'">{{ t('sim.map.modeTime') }}</button>
       </div>
-      <label v-if="!noOverflow" class="rm-pond-toggle" :class="{ off: !ponding }" :title="t('sim.ponding.toggleTip')">
+      <label v-if="!noOverflow && !noPondPoints" class="rm-pond-toggle" :class="{ off: !ponding }" :title="t('sim.ponding.toggleTip')">
         <input v-model="pondOn" type="checkbox" :disabled="!ponding" />
         {{ t('sim.ponding.toggle') }}<template v-if="ponding">（{{ ponding.summary.cluster_count }}）</template>
       </label>
@@ -978,7 +983,7 @@ onBeforeUnmount(() => {
         <input v-model="ledgerOn" type="checkbox" />
         {{ t('sim.hotspots.ledgerToggle') }}（{{ ledgerPts.length }}）
       </label>
-      <label v-if="hot && hotOn" class="rm-pond-toggle" :title="t('sim.hotspots.catchTip')">
+      <label v-if="hot && hotOn && (hot.catchments?.features?.length || hot.region_catchment?.features?.length)" class="rm-pond-toggle" :title="t('sim.hotspots.catchTip')">
         <input v-model="hotCatchOn" type="checkbox" />
         {{ t('sim.hotspots.catchToggle') }}
       </label>
@@ -1002,10 +1007,6 @@ onBeforeUnmount(() => {
         <input v-model="netOn" type="checkbox" :disabled="netLoading && !netOn" />
         {{ netLoading ? t('sim.network.loading') : t('sim.network.toggle') }}
       </label>
-      <button class="rm-prop-btn" :class="{ on: propOn }" :aria-pressed="propOn" :disabled="propLoading || !meta"
-              @click="toggleProposed">
-        <span class="sw" />{{ propLoading ? t('sim.proposed.loading') : t('sim.proposed.btn') }}<template v-if="proposed">（{{ proposed.features.length }}）</template>
-      </button>
     </div>
 
     <div v-if="meta" class="rm-stats">
@@ -1078,9 +1079,9 @@ onBeforeUnmount(() => {
     </div>
 
 
-    <HotspotPanel v-if="hot" :data="hot" :state="hotState" :active="hotActive" @focus="focusHotspot" />
+    <HotspotPanel v-if="hot && !noPondPoints" :data="hot" :state="hotState" :active="hotActive" @focus="focusHotspot" />
     <ResidualPanel v-if="meta && residual && (showResidual || resOn)" :data="residual" :active="resActive" @focus="focusRes" />
-    <PondingPanel v-if="meta && !noOverflow" :data="ponding" :error="pondErr" :active="pondActive" @focus="focusPond" />
+    <PondingPanel v-if="meta && !noOverflow && !noPondPoints":data="ponding" :error="pondErr" :active="pondActive" @focus="focusPond" />
 
     <p v-if="error" class="rm-err">{{ error }}</p>
     <p v-if="netErr" class="rm-err">{{ t('sim.network.failed') }}{{ netErr }}</p>
@@ -1102,12 +1103,6 @@ onBeforeUnmount(() => {
 .rm-head { gap: 14px; }
 .rm-pond-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg); cursor: pointer; }
 .rm-pond-toggle.off { opacity: 0.5; cursor: default; }
-.rm-prop-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px;
-  border: 1px solid var(--line); background: none; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
-.rm-prop-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
-.rm-prop-btn.on { border-color: #2CA02C; background: rgba(44, 160, 44, 0.15); }
-.rm-prop-btn:disabled { opacity: 0.5; cursor: default; }
-.rm-prop-btn .sw { width: 12px; height: 10px; border-radius: 2px; background: #2CA02C; }
 .rm-modes { display: inline-flex; background: var(--field); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px; }
 .rm-modes button { border: 0; background: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; color: var(--fg-2); }
 .rm-modes button.on { background: var(--blue); color: #fff; }
@@ -1166,9 +1161,6 @@ onBeforeUnmount(() => {
 .rm-res span { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px;
   color: #fff; font: 600 11px/1 system-ui, sans-serif; border: 1.5px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
-.rm-prop span { display: flex; align-items: center; justify-content: center; height: 20px; padding: 0 6px; border-radius: 3px;
-  background: #2CA02C; color: #fff; font: 600 11px/1 system-ui, sans-serif; white-space: nowrap;
-  border: 1.5px solid rgba(255, 255, 255, 0.9); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
 .leaflet-popup.rm-pop .leaflet-popup-content-wrapper { background: #1c1e21; color: #fff; border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
 .leaflet-popup.rm-pop .leaflet-popup-tip { background: #1c1e21; }

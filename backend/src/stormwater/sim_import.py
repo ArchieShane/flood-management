@@ -50,7 +50,7 @@ def detect(root: Path) -> str:
     return "c1"
 
 
-def import_any(root: Path, by: str | None = None, only: list[str] | None = None, c2d: Path | None = None) -> tuple[str, int]:
+def _import_any(root: Path, by: str | None = None, only: list[str] | None = None, c2d: Path | None = None) -> tuple[str, int]:
     root = root.resolve()
     kind = detect(root)
     if kind == "rda":
@@ -67,6 +67,31 @@ def import_any(root: Path, by: str | None = None, only: list[str] | None = None,
         return kind, sim_city.import_all(root, by, only)
     from . import sim_c1
     return kind, sim_c1.import_all(root, by, only, c2d)
+
+
+def import_any(root: Path, by: str | None = None, only: list[str] | None = None, c2d: Path | None = None) -> tuple[str, int]:
+    kind, run_id = _import_any(root, by, only, c2d)
+    _copy_ponding_ge(root.resolve(), run_id)
+    return kind, run_id
+
+
+def _copy_ponding_ge(root: Path, run_id: int) -> None:
+    """交付根上由 engine 写的附属文件带到抽取结果目录：ponding_ge.json（「需要排 → 可以排 → 排完剩余」）、params.json（「推演参数」）、outputs.json（「成果数据位置」）。没有就不动。"""
+    names = [n for n in ("ponding_ge.json", "params.json", "outputs.json", "pipes.geojson") if (root / n).is_file()]
+    if not names:
+        return
+    import shutil
+
+    from . import simulation as sim
+    from .sim_results import DATA_ROOT, _posix
+    with sim.connect() as conn:
+        row = conn.execute("select output_dir from run where id = %s", [run_id]).fetchone()
+    if row and row["output_dir"]:
+        dst = (DATA_ROOT / _posix(row["output_dir"])).resolve()
+        if dst.is_dir() and DATA_ROOT.resolve() in dst.parents:
+            for n in names:
+                shutil.copyfile(root / n, dst / n)
+                print(f"{n} → {dst}")
 
 
 def main() -> None:

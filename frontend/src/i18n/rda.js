@@ -32,15 +32,33 @@ const EN = {
   'L1 现状': 'L1 Existing',
   'L2 雨前预置泵': 'L2 Pre-placed pumps',
   'L2+planned 客户计划': 'L2+planned Client plan',
-  'L2+suggested 我们的方案': 'L2+suggested Our scheme',
+  'L2+suggested 推荐方案': 'L2+suggested Recommended scheme',
   'L2+suggested 新增': 'L2+suggested additions',
   'L2 雨前预置': 'L2 pre-placed',
   'L1': 'L1',
   '第一道防线 · 现状永久管网': '1st line · existing permanent network',
   '第二道防线 · 雨前预置移动泵': '2nd line · mobile pumps placed before the rain',
   '第二道防线 · 客户已有计划（视同建成）': '2nd line · client\'s existing plan (treated as built)',
-  '第二道防线 · 我们的建议方案': '2nd line · our proposed scheme',
-  'L2+suggested 我们的方案 · ': 'L2+suggested Our scheme · ',
+  '第二道防线 · 推荐方案（当前方案瘦身版）': '2nd line · recommended scheme (slimmed-down version of the current scheme)',
+  'L2+suggested 推荐方案 · ': 'L2+suggested Recommended scheme · ',
+  '方案对比（客户热点四项全过 / 全域 ≥0.30 m 积水面积）': 'Scheme comparison (hotspots passing all four criteria / domain area ≥0.30 m)',
+  '降雨': 'Rainfall',
+  '四项全过 / 11': 'All four passed / 11',
+  '未过的热点': 'Hotspots not passed',
+  '与当前方案（按 96 mm 优化）的差异': 'Differences from the current scheme (optimised for 96 mm)',
+  '变化': 'Change',
+  '造价 USD': 'Cost USD',
+  '与当前方案相比': 'Compared with the current scheme',
+  // 方案对比 / 差异表里交付给的文字
+  '60.7 mm / 1 h（AECOM 雨型）': '60.7 mm / 1 h (AECOM pattern)',
+  '61 mm / 1 h（Mussafah 雨型）': '61 mm / 1 h (Mussafah pattern)',
+  '61 mm / 24 h': '61 mm / 24 h',
+  '客户计划': 'Client plan',
+  '61 mm 专门方案（调泵后，约 4,980 万美元）': '61 mm dedicated scheme (after pump adjustment, about USD 49.8 million)',
+  '推荐方案：当前方案瘦身版': 'Recommended scheme: slimmed-down version of the current scheme',
+  '当前方案（按 96 mm 优化）': 'Current scheme (optimised for 96 mm)',
+  '删去': 'Removed',
+  '换成更省的': 'Replaced by a cheaper one',
 
   // —— 地图 / 图层 / 播放 ——
   '最大水深': 'Max depth',
@@ -143,8 +161,10 @@ const EN = {
   '剔': 'Ex',
   '{n} 片 · 峰值合计 {v} m³ · 未退 {k}': '{n} patches · peak total {v} m³ · {k} not receded',
   '只看客户热点 200 m 内': 'Only within 200 m of a client hotspot',
-  '编号 SIM-态-序号是模型算出的积水点，不是客户热点；按峰值积水量降序，只在同一状态、同一阈值内有效。':
-    'SIM-state-number IDs are ponding points found by the model, not client hotspots; sorted by peak volume, valid only within the same state and thresholds.',
+  '编号 SIM-态-序号是模型算出的积水点，不是客户热点；列表按最大积水量降序，默认先看前 {n} 条，只在同一状态、同一阈值内有效。':
+    'SIM-state-number IDs are ponding points found by the model, not client hotspots; the list is sorted by max volume, the first {n} are shown by default, valid only within the same state and thresholds.',
+  '更多（还有 {n} 条）': 'More ({n} left)',
+  '收起，只看前 {n} 条': 'Collapse, show only the first {n}',
   '评估剔除区': 'Assessment exclusion zone',
   '地面高程': 'ground level',
   '面积': 'Area',
@@ -157,6 +177,190 @@ const EN = {
   '到 {t} h 仍有 {v} m³': 'still {v} m³ at {t} h',
   '最近客户热点': 'Nearest client hotspot',
   '200 m 内热点': 'Hotspots within 200 m',
+  '覆盖的客户热点': 'Client hotspots covered',
+  '覆盖是怎么算的（口径）': 'How coverage is computed',
+  '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量。上面的小表是各状态在同一套阈值下的并排对比，当前状态高亮。':
+    'Hotspot coverage = covered hotspots ÷ total hotspots; volume coverage = ponded volume within 200 m of a hotspot ÷ all ponded volume. The small table above compares the states under the same thresholds, with the current state highlighted.',
+  '客户热点（交付的热点，只有坐标）到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离按客户文档量：热点到最近积水片边界的平面距离，热点落在积水片里为 0 m。同一热点可被几个点覆盖，表里按距离由近到远列出。':
+    'A client hotspot (the delivered hotspots, coordinates only) is covered by a ponding point when the distance to that point is ≤ 200 m; distance follows the client document: planar distance from the hotspot to the boundary of the nearest ponded patch, 0 m when the hotspot lies inside a patch. One hotspot can be covered by several points; the table lists them nearest first.',
+  '一半以上面积落在评估剔除区内的积水片不计入覆盖，也不进占比（与客户重合分析文档同口径）。剔除区有两处：ADM-80 岸边约 9.7 ha 的 DTM 高程恰为 0.00 m（判为缺测填零），ADM-161 东侧私人地块的深坑。':
+    'Patches with more than half of their area inside an assessment exclusion zone are not counted for coverage or for the share (same rule as the client overlap analysis). There are two zones: about 9.7 ha of DTM at exactly 0.00 m on the ADM-80 shore (treated as missing data filled with zero) and a deep pit in a private plot east of ADM-161.',
+  '只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。覆盖率也不等于「判据」页的 A / B / C 达标，不等于积水面积的削减比例。':
+    'This only compares locations and is not model validation: the hotspots have no depth, extent or date, and the model is not calibrated. Coverage is also not the same as the A / B / C pass marks on the Criteria tab, nor the reduction in ponded area.',
+  '客户热点清单。「200 m 内最大水深」是离热点 200 m 内单元的最大水深（颜色：红 ≥0.30 m，橙 0.10–0.30 m，灰 无），与上面按阈值现算的模拟积水点是两套；按它降序，点一行在地图上定位。':
+    'The client hotspot list. "Max depth within 200 m" is the maximum depth among cells within 200 m of the hotspot (colour: red ≥0.30 m, orange 0.10–0.30 m, grey none) and is a separate measure from the simulated ponding points above, which are computed at your thresholds. Sorted by it, descending; click a row to locate it on the map.',
+  '最大水深 ≥0.30 m': 'Max depth ≥0.30 m',
+  '200 m 内最大水深': 'Max depth within 200 m',
+  '按所给阈值从二维结果现算（三角网共边连片）；不扣地表塘占地，没有 L3 承接与评估剔除标记。热点距离按到积水片边界量。':
+    'Computed from the 2D result at the given thresholds (patches joined along shared triangle edges); pond footprints are not deducted and there are no L3 hand-over or exclusion marks. Hotspot distances are measured to the patch boundary.',
+  '按所给阈值从二维结果现算（三角网共边连片）；热点距离按到积水片边界量；没有评估剔除区，没有 L3 承接。':
+    'Computed from the 2D result at the given thresholds (patches joined along shared triangle edges); hotspot distances are measured to the patch boundary; there is no exclusion zone and no L3 hand-over.',
+  '已按所给阈值从二维结果重算。': 'Recomputed from the 2D result at the given thresholds.',
+  '本任务是 100 m 网格：一个单元约 2,000 m²（所以默认的 100 m² 连片下限实际等于至少 1 个单元），地形被平均到 100 m、小洼地被抹平，点数和位置与 RD-A（15 m）不可比；没有评估剔除区。':
+    'This run uses a 100 m grid: one cell is about 2,000 m² (so the default 100 m² patch minimum in practice means at least 1 cell), and the terrain is averaged to 100 m so small depressions are smoothed away. Point counts and positions are not comparable with RD-A (15 m). There is no assessment exclusion zone.',
+  '默认同 RD-A 与客户文档：0.15 m、连片 100 m²、持续 0.5 h。': 'Defaults follow RD-A and the client document: 0.15 m, 100 m² patch, 0.5 h.',
+  '我们算出的积水点覆盖了多少客户热点': 'Client hotspots covered by our computed ponding points',
+  '热点覆盖率（200 m 内有模拟积水的热点 / {n}）': 'Hotspot coverage (hotspots with simulated ponding within 200 m / {n})',
+  '积水点在热点 200 m 内：{a} / {n} 片': 'Ponding points within 200 m of a hotspot: {a} / {n} patches',
+  '一、客户热点附近有没有模拟积水（热点到最近积水片边界的距离）': '1. Is there simulated ponding near the client hotspots (distance from hotspot to the nearest patch boundary)',
+  '落在积水范围内（0 m）': 'Inside ponded area (0 m)',
+  '50 m 内': 'Within 50 m',
+  '100 m 内': 'Within 100 m',
+  '200 m 内': 'Within 200 m',
+  '二、反过来看：模拟积水有多少在客户热点附近': '2. The other way round: how much simulated ponding lies near the client hotspots',
+  '其中在热点 200 m 内': 'of which within 200 m of a hotspot',
+  '积水量 m³': 'Ponded volume m³',
+  '当前状态：热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。':
+    'Current state: {a} of {n} patches lie within 200 m of a hotspot, {v} m³, {p}% of the ponded volume; the other {q}% is outside hotspot range.',
+  '距离': 'Distance',
+  '与客户文档一致：热点到最近积水片边界的平面距离（EPSG:32640），热点落在积水片里为 0 m；按二维网格的三角形顶点量，不是到单元形心。':
+    'Same as the client document: planar distance from the hotspot to the boundary of the nearest ponded patch (EPSG:32640), 0 m when the hotspot lies inside a patch; measured to the 2D mesh triangle vertices, not to cell centroids.',
+  '某个积水点离热点 ≤ 200 m，就算这个积水点覆盖了该热点；一个热点可被几个点覆盖。第一张表按热点数，0 / 50 / 100 / 200 m 是逐档累计。':
+    'A ponding point within 200 m of a hotspot covers it; one hotspot can be covered by several points. Table 1 counts hotspots; the 0 / 50 / 100 / 200 m columns are cumulative.',
+  '反过来看': 'The other way round',
+  '第二张表按积水点和积水量数：有多少积水点（及其峰值积水量）在某个热点 200 m 内，其余就是在热点范围之外。':
+    'Table 2 counts ponding points and volume: how many points (and their peak volume) lie within 200 m of some hotspot; the rest are outside hotspot range.',
+  '积水量取每个积水点的峰值积水量（逐帧 Σ 水深 × 单元面积 的最大值），分子是热点 200 m 内的点，分母是全部点；每个点只算一次。按整片算：只要一片有一部分在热点 200 m 内，整片的水量都计入分子，所以这个比例偏乐观。各点峰值时刻不同，是量级参考。':
+    'Volume is each point\'s peak ponded volume (maximum over frames of Σ depth × cell area); the numerator is the points within 200 m of a hotspot, the denominator all points; each point counts once. Whole patches are counted: if any part of a patch is within 200 m of a hotspot its entire volume goes into the numerator, so the share is optimistic. Peaks occur at different times, so it is an order-of-magnitude reference.',
+  '当前状态的二维结果里，全程最大水深 ≥ 阈值的单元按三角网共边连成片，去掉面积不足连片下限、持续不足时长下限的片；阈值就是上面「积水点阈值」那一栏（默认 0.15 m、100 m²、0.5 h，同客户文档）。':
+    'In the current state\'s 2D result, cells whose whole-run maximum depth reaches the threshold are joined into patches along shared triangle edges; patches below the minimum area or duration are dropped. The thresholds are those in the "Ponding thresholds" box above (default 0.15 m, 100 m², 0.5 h, same as the client document).',
+  '只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。全市地表直接受雨，浅水片很多，积水点数量远多于热点数；100 m 网格较粗，与 RD-A（15 m）的数不可直接比。':
+    'This only compares locations and is not model validation: the hotspots have no depth, extent or date, and the model is not calibrated. Rain falls directly on the whole city surface, so there are many shallow patches and far more ponding points than hotspots; the 100 m grid is coarse, so the numbers cannot be compared directly with RD-A (15 m).',
+  '模拟积水点': 'Simulated ponding points',
+  '从这一态的二维结果按阈值现算（三角网共边连片，口径同 RD-A）。编号 SIM-态-序号是模型算出的积水点，不是客户热点；按峰值积水量降序，只在同一状态、同一阈值内有效。':
+    'Computed from this state\'s 2D result at the chosen thresholds (patches joined along shared triangle edges, same rule as RD-A). SIM-state-number IDs are ponding points found by the model, not client hotspots; sorted by peak volume, valid only within the same state and thresholds.',
+  '本任务是 100 m 网格：一个单元约 2,000 m²，热点 200 m 内只有两三个单元，地形被平均到 100 m、小洼地被抹平，所以点数和位置与 RD-A（15 m）不可比。默认最小连片取至少 1 个单元；没有评估剔除区。':
+    'This run uses a 100 m grid: one cell is about 2,000 m², only two or three cells fall within 200 m of a hotspot, and the terrain is averaged to 100 m so small depressions are smoothed away. Point counts and positions are therefore not comparable with RD-A (15 m). The default minimum patch is at least 1 cell; there is no assessment exclusion zone.',
+  '连片面积 0 = 至少 1 个单元；默认 0.15 m、持续 0.5 h。': 'Patch area 0 = at least 1 cell; default 0.15 m, 0.5 h.',
+  '回到默认': 'Back to default',
+  '热点共 {n} 个（台账 ADM 全部）；其中 {m} 个不在二维计算域内，没有仿真结果，一律算未覆盖。':
+    '{n} hotspots in all (every ADM ledger point); {m} of them lie outside the 2D computational domain, have no simulation result and always count as uncovered.',
+  '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量。上面的小表是各状态在同一套阈值下的并排对比。':
+    'Hotspot coverage = covered hotspots ÷ total hotspots; volume coverage = ponded volume within 200 m of a hotspot ÷ all ponded volume. The small table above compares the states under the same thresholds.',
+  '热点到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离取热点到片内最近单元形心（100 m 网格下比较粗）。':
+    'A hotspot is covered by a ponding point when the distance from the hotspot to the nearest cell centroid of that patch is ≤ 200 m (coarse on a 100 m grid).',
+  '分子是热点 200 m 内那些积水点的峰值积水量之和，分母是全部积水点的峰值积水量之和；每个点只算一次。按整片算：只要一片有一部分在热点 200 m 内，整片的水量都计入分子，所以这个比例偏乐观。各点峰值时刻不同，是量级参考。':
+    'Numerator: sum of peak ponded volumes of the points within 200 m of a hotspot; denominator: the same over all points; each point counts once. Whole patches are counted: if any part of a patch is within 200 m of a hotspot its entire volume goes into the numerator, so the share is optimistic. Peaks occur at different times, so it is an order-of-magnitude reference.',
+  '只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。全市地表直接受雨，浅水片很多，积水点数量远多于热点数。':
+    'This only compares locations and is not model validation: the hotspots have no depth, extent or date, and the model is not calibrated. Rain falls directly on the whole city surface, so there are many shallow patches and far more ponding points than hotspots.',
+  '全部客户热点': 'All client hotspots',
+  '交付的全部热点，地图上「关注积水点」图层同一批（颜色 = 交付统计的积水等级：红 ≥0.30 m，橙 0.10–0.30 m，灰 无）。「交付统计」是离热点 200 m 内单元的最大水深，与上面按阈值现算的模拟积水点是两套；按交付统计的水深降序，点一行在地图上定位。':
+    'All delivered hotspots, the same set as the "Watched hotspots" map layer (colour = delivered flooding class: red ≥0.30 m, orange 0.10–0.30 m, grey none). "Delivered statistics" is the maximum depth among cells within 200 m of the hotspot and is a separate measure from the simulated ponding points computed above at your thresholds. Sorted by delivered depth; click a row to locate it on the map.',
+  '被覆盖': 'Covered',
+  '交付统计 ≥0.30 m': 'Delivered ≥0.30 m',
+  '搜编号 / 片区 / 位置': 'Search ID / area / location',
+  '交付统计 200 m 内最大水深': 'Delivered max depth within 200 m',
+  '模拟积水点覆盖（距离）': 'Covered by simulated points (distance)',
+  '再显示 100 个（共 {n} 个）': 'Show 100 more ({n} in total)',
+  '没有符合条件的热点': 'No hotspot matches',
+  '不在计算域内的 {n} 个台账热点（只列不算）': '{n} ledger hotspots outside the computational domain (listed only, not counted)',
+  '热点 200 m 内': 'Within 200 m of a hotspot',
+  '单元数': 'Cells',
+  '只看前 {n} 片': 'Show only the first {n}',
+  '显示全部 {n} 片': 'Show all {n}',
+  '热点覆盖率（被覆盖热点数 / {n}）': 'Hotspot coverage rate (covered hotspots / {n})',
+  '积水量覆盖率（热点 200 m 内的积水量占比）': 'Volume coverage rate (share of ponded volume within 200 m of a hotspot)',
+  '覆盖热点': 'Hotspots covered',
+  '热点覆盖率': 'Hotspot coverage',
+  '积水量覆盖率': 'Volume coverage',
+  '覆盖率': 'Coverage rate',
+  '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数（11）；积水量覆盖率 = 热点 200 m 内的积水量 ÷ 全部积水量，两个都不含被剔除的片。上面的小表是四个状态在同一套阈值下的并排对比，当前状态高亮。':
+    'Hotspot coverage = covered hotspots ÷ total hotspots (11); volume coverage = ponded volume within 200 m of a hotspot ÷ all ponded volume; neither counts dropped patches. The small table above compares the four states under the same thresholds, with the current state highlighted.',
+  '不计入的片': 'Patches not counted',
+  '占比': 'Share',
+  '不是什么': 'What it is not',
+  '当前状态的二维结果里，全程最大水深 ≥ 阈值的单元按三角网共边连成片，去掉面积不足连片下限、持续不足时长下限的片；阈值就是上面「积水点阈值」那一栏（成果自带 0.15 / 0.30 m、100 m²、0.5 h）。':
+    'In the current state\'s 2D result, cells whose whole-run maximum depth reaches the threshold are joined into patches along shared triangle edges; patches below the minimum area or minimum duration are dropped. The thresholds are those in the "Ponding thresholds" box above (delivered: 0.15 / 0.30 m, 100 m², 0.5 h).',
+  '客户热点（RD-A 交付的 11 个，只有坐标）到某个积水点的距离 ≤ 200 m，就算这个积水点覆盖了该热点；距离取热点到片内最近单元形心。同一热点可被几个点覆盖，表里按距离由近到远列出。':
+    'A client hotspot (the 11 delivered with RD-A, coordinates only) is covered by a ponding point when the distance from the hotspot to the nearest cell centroid of that patch is ≤ 200 m. One hotspot can be covered by several points; the table lists them nearest first.',
+  '这一状态下热点 200 m 内已经没有达标的积水点，意思是该处不再积水或积得不够深、不够久，不是「没有算到」。':
+    'In this state no qualifying ponding point is left within 200 m of the hotspot: the spot no longer ponds, or not deep or long enough. It does not mean "not computed".',
+  '一半以上面积落在评估剔除区内的积水片不计入覆盖，也不进下面的占比（与客户重合分析文档同口径）。剔除区有两处：ADM-80 岸边约 9.7 ha 的 DTM 高程恰为 0.00 m（判为缺测填零），ADM-161 东侧私人地块的深坑。':
+    'Patches with more than half of their area inside an assessment exclusion zone are not counted for coverage or for the share below (same rule as the client overlap analysis). There are two zones: about 9.7 ha of DTM at exactly 0.00 m on the ADM-80 shore (treated as missing data filled with zero) and a deep pit in a private plot east of ADM-161.',
+  '「热点 200 m 内」的积水量 = 这些积水点的峰值积水量之和，除以全部（不含被剔除的）积水点的峰值积水量之和；每个点只算一次。各点峰值时刻不同，所以这是量级参考，不是某一时刻的水量。按整片算：只要一片有一部分在热点 200 m 内，整片的水量都计入分子，不是只算 200 m 圈内的那部分水，所以这个比例偏乐观，圈内的实际水量比它小。':
+    '"Within 200 m of a hotspot" volume = the sum of peak ponded volumes of those points, divided by the sum over all points (excluding dropped patches); each point counts once. Peaks occur at different times, so this is an order-of-magnitude reference, not the volume at one instant. Whole patches are counted: if any part of a patch lies within 200 m of a hotspot, its entire volume goes into the numerator, not just the water inside the 200 m circle, so the share is optimistic and the actual volume inside the circles is smaller.',
+  '这只是空间位置的比对，不是模型验证：热点没有水深、范围和发生日期，模型也没有率定。「覆盖 x / 11」与「判据」页的 A / B / C 达标不是一回事，也不等于积水面积的削减比例。':
+    'This only compares locations and is not model validation: the hotspots have no depth, extent or date, and the model is not calibrated. "Covered x / 11" is not the same as the A / B / C pass marks on the Criteria tab, nor the reduction in ponded area.',
+  '热点 200 m 内 {a} 片 / {n} 片，积水量 {v} m³，占 {p}%；其余 {q}% 在热点范围之外。':
+    '{a} of {n} patches lie within 200 m of a hotspot, {v} m³, {p}% of the ponded volume; the other {q}% is outside hotspot range.',
+  '热点 200 m 圆内的地表峰值积水量': 'Peak surface ponded volume within the 200 m circle of each hotspot',
+  '客户热点只有一个坐标、没有积水面，所以把以它为圆心、半径 200 m 的圆当作它的积水面，圆内按水深阈值取水。这一栏的阈值只管下面的圆内积水量，不影响上面的积水点和覆盖率。':
+    'A client hotspot is only a coordinate with no ponded surface, so the circle of radius 200 m around it is taken as its ponding surface and water in the circle is counted by a depth threshold. This threshold only affects the in-circle volumes below, not the ponding points or coverage above.',
+  '计算中…': 'Computing…',
+  '关注热点圆内积水量占全域（{a} m³ ÷ {b} m³；水深 ≥ {d} m）':
+    'Share of domain ponding inside the hotspot circles ({a} m³ ÷ {b} m³; depth ≥ {d} m)',
+  '不设阈值：{a} m³ ÷ 总积水量 {b} m³': 'No threshold: {a} m³ ÷ total ponded volume {b} m³',
+  '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数（11），不含被剔除的片。上面的小表是四个状态在同一套阈值下的并排对比，当前状态高亮。':
+    'Hotspot coverage = covered hotspots ÷ total hotspots (11), excluding dropped patches. The small table above compares the four states under the same thresholds, with the current state highlighted.',
+  '热点覆盖率 = 被覆盖的热点数 ÷ 热点总数。上面的小表是各状态在同一套阈值下的并排对比，当前状态高亮。':
+    'Hotspot coverage = covered hotspots ÷ total hotspots. The small table above compares the states under the same thresholds, with the current state highlighted.',
+  '一半以上面积落在评估剔除区内的积水片不计入覆盖（与客户重合分析文档同口径）。剔除区有两处：ADM-80 岸边约 9.7 ha 的 DTM 高程恰为 0.00 m（判为缺测填零），ADM-161 东侧私人地块的深坑。':
+    'Ponding patches with more than half of their area in an assessment exclusion zone are not counted in coverage (same rule as the client overlap analysis). There are two exclusion zones: about 9.7 ha of DTM at exactly 0.00 m beside ADM-80 (treated as missing data filled with zero) and a deep pit on a private plot east of ADM-161.',
+  '关注热点的积水量占全域积水量的比例': 'Share of domain ponded volume that lies in the hotspot circles',
+  '口径': 'Basis',
+  '分子：热点 200 m 圆内（并集）': 'Numerator: inside hotspot 200 m circles (union)',
+  '分母：全域': 'Denominator: whole domain',
+  '占比': 'Share',
+  '水深 ≥ {d} m（跟着上面的阈值）': 'Depth ≥ {d} m (follows the threshold above)',
+  '分子分母都扣评估剔除区': 'Exclusion zones removed from both',
+  '不设阈值（所有水深都加）': 'No threshold (all depths added)',
+  '不扣剔除区，分母 = 右侧总览的「总积水量」': 'Exclusion zones not removed; the denominator is the overview "total ponded volume" on the right',
+  '分母': 'Denominator',
+  '分子': 'Numerator',
+  '全域所有单元': 'all cells',
+  '所有热点圆的并集': 'union of hotspot circles',
+  '（有阈值时只加 h ≥ 阈值 的单元）': '(with a threshold only cells with h ≥ threshold are added)',
+  '（同一口径，重叠的单元只算一次）': '(same basis; overlapping cells counted once)',
+  '也就是说：分母是把整个计算域里每个单元每一帧的「水深 × 面积」加起来，取全部帧里最大的那一帧（出现在上表的时刻）；分子是同样的算法，只是范围缩到热点圆里。两者各取自己的峰值时刻。':
+    'In words: the denominator adds depth × area over every cell of the whole computational domain for each frame and takes the largest frame (at the time shown in the table); the numerator uses the same method restricted to the hotspot circles. Each takes its own peak time.',
+  '积水量怎么算': 'How the volume is computed',
+  '（只加 h ≥ 阈值 的单元 i）': '(only cells i with h ≥ threshold are added)',
+  '热点的地表峰值积水量': 'Peak surface ponded volume of a hotspot',
+  '圆内单元：单元形心到热点 ≤ 200 m。圆面积 π × 200² ≈ {a} m²，当作这个热点的积水面。':
+    'Cells in the circle: cell centroid within 200 m of the hotspot. Circle area π × 200² ≈ {a} m², taken as the hotspot\'s ponding surface.',
+  'h(t) 是单元在第 t 帧的水深（m），A 是单元面积（m²）；水深低于阈值（当前 {d} m）的单元不加，避免薄水膜把量撑大。':
+    'h(t) is the cell depth (m) at frame t and A is the cell area (m²); cells shallower than the threshold (now {d} m) are not added, so a thin film of water does not inflate the volume.',
+  'V(t) 逐帧都算，取全部帧里最大的一个，所以每个热点的峰值时刻不同，是量级参考，不是某一时刻的水量。':
+    'V(t) is computed for every frame and the largest is taken, so each hotspot peaks at a different time; it is an order-of-magnitude reference, not the water at one moment.',
+  '重叠': 'Overlap',
+  '两个热点相距小于 400 m 时圆相交，重叠区里的单元会被两个圆都数到，所以各热点的圆内积水量不能直接相加。总量取「所有圆的并集」：每个单元只算一次，再按同样的公式算。':
+    'When two hotspots are less than 400 m apart their circles intersect and cells in the overlap are counted in both circles, so the in-circle volumes of the hotspots must not simply be added. The total is taken over the union of all circles: each cell once, then the same formula.',
+  '落在评估剔除区内的单元不算（与积水点覆盖剔除多半在剔除区的片同口径）。':
+    'Cells inside an assessment exclusion zone are not counted (same rule as dropping patches mostly in the exclusion zone from coverage).',
+  '这是「圆内」的量，不是积水点的峰值积水量，两者不能比；圆内也可能有与热点无关的水（河道、洼地）。圆按单元形心取，边缘有取舍误差，网格越粗越明显。':
+    'This is an in-circle quantity, not the peak volume of a ponding point, so the two cannot be compared; the circle may also contain water unrelated to the hotspot (channels, depressions). The circle is cut by cell centroids, so the edge has a rounding error that grows with grid size.',
+  '并集峰值积水量（每个单元只算一次）': 'Peak volume of the union (each cell once)',
+  '各热点圆内峰值直接相加': 'In-circle peaks added directly',
+  '重复算的量（相加比并集多出的，占相加的 {p}%）': 'Double counted (the excess of the sum over the union, {p}% of the sum)',
+  '{a} / {n} 个热点的圆内有水（水深 ≥ {d} m）；{b} 个热点的圆与别的热点的圆重叠，共 {k} 对。':
+    '{a} / {n} hotspot circles contain water (depth ≥ {d} m); {b} hotspots have a circle overlapping another, {k} pairs in all.',
+  '评估剔除区内 {n} 个单元不计。': '{n} cells inside the exclusion zones are not counted.',
+  '哪些热点的 200 m 圆有重叠（按重叠面积从大到小）': 'Which hotspot 200 m circles overlap (largest overlap first)',
+  '圆心距 m': 'Centre distance m',
+  '圆重叠面积 m²（占圆）': 'Circle overlap area m² (share of circle)',
+  '重叠区单元面积 m²': 'Cell area in overlap m²',
+  '重叠区峰值积水量 m³': 'Peak volume in overlap m³',
+  '{n} 个单元': '{n} cells',
+  '只看前 {n} 对': 'Show first {n} pairs',
+  '显示全部 {n} 对': 'Show all {n} pairs',
+  '圆重叠面积是两个圆的几何交集（解析式）；重叠区单元面积是落在两圆里的单元面积之和（按形心取，所以与几何面积略有出入）；重叠区峰值积水量 = 重叠区单元按上面公式算出的峰值，每对单独算，不能把各对相加。':
+    'Circle overlap area is the geometric intersection of the two circles (closed form); cell area in overlap is the area of cells in both circles (by centroid, so it differs slightly from the geometric area); peak volume in overlap is the peak of those cells by the formula above, computed per pair, so pairs must not be added.',
+  '圆内峰值积水量 m³（时刻）': 'In-circle peak volume m³ (time)',
+  '圆内最大水深 m': 'In-circle max depth m',
+  '圆重叠': 'Circle overlap',
+  '剔除区 {n} m² 不计': 'Exclusion zone {n} m² not counted',
+  '圈内 {p}% 被别的圈盖住；只属于它自己的峰值 {v} m³': '{p}% of its circle is covered by other circles; peak of its own exclusive part {v} m³',
+  '圆内积水量读取失败：': 'Failed to read in-circle volume: ',
+  '水深阈值要在 0.05–3 m 之间': 'Depth threshold must be 0.05–3 m',
+  '已不计入 {n} 片：一半以上面积落在评估剔除区内（列表里标「剔」），与客户重合分析文档同口径。':
+    '{n} patch(es) not counted: more than half of their area lies in an assessment exclusion zone (marked "Ex" in the list), same rule as the client overlap analysis.',
+  '一半以上面积落在评估剔除区内，不计入热点覆盖': 'More than half of the area is in an exclusion zone; not counted for hotspot coverage',
+  '多半在剔除区': 'Mostly in exclusion zone',
+  '按当前状态、当前阈值算出的积水点，200 m 内有积水点即算覆盖该热点；未覆盖 = 这一态下热点周边已没有达标的积水点。点编号可定位。':
+    'Computed for the current state and thresholds: a hotspot is covered when a ponding point lies within 200 m of it; not covered = no qualifying ponding point is left around it in this state. Click a point ID to locate it.',
+  '覆盖': 'Covered',
+  '未覆盖': 'Not covered',
+  '覆盖它的积水点（距离）': 'Ponding points covering it (distance)',
   '无': 'None',
   '剔除说明': 'Exclusion note',
   '扣除后': 'after deduction',
@@ -176,6 +380,10 @@ const EN = {
   '完成': 'done',
   '备注': 'Note',
   '编号': 'ID',
+  '最大水深 m（时刻）': 'Max depth m (time)',
+  '最大面积 m²（时刻）': 'Max area m² (time)',
+  '最大积水量 m³（时刻）': 'Max volume m³ (time)',
+  '最大积水面积': 'Max ponded area',
   '最深 m': 'Deepest m',
   '面积 m²': 'Area m²',
   '峰值 m³': 'Peak m³',
@@ -324,6 +532,14 @@ const EN = {
   '地面洼坑': 'Surface depression',
   '隧道引道': 'Tunnel approach',
   '截流井 {w} 的溢流重力进入地下池': 'Overflow from intercept well {w} flows by gravity into the underground tank',
+  '规划设备清单（{n} 台）': 'Planned equipment ({n} units)',
+  '点一行定位，并看所属措施的设计参数、怎么排水、合规检查。': 'Click a row to locate it and see its measure’s design parameters, drainage path and compliance checks.',
+  '设备类型': 'Equipment type',
+  '新建排海口（设备）': 'New sea outfall',
+  '经度 {lon}、纬度 {lat}': 'Lon {lon}, lat {lat}',
+  '{n} 条压力输水接入，设计流量合计 {q} m³/s': '{n} pressure main(s) discharge here, total design flow {q} m³/s',
+  '所属措施': 'Measure',
+  '关键参数': 'Key parameters',
   '池容 {v} m³、有效水深 {d} m、池底 {f} m、开挖 {e} m': 'Volume {v} m³, effective depth {d} m, invert {f} m, excavation {e} m',
   '雨后由排空泵自动排回管网': 'After the rain a drain-down pump empties it back to the network automatically',
   '{n} 台泵 × {q} m³/s（设计流量 {d} m³/s）': '{n} pumps × {q} m³/s (design flow {d} m³/s)',

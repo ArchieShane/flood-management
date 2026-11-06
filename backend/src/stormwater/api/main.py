@@ -11,8 +11,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .. import sim_mock
+from .hyetograph import router as hyetograph_router
 from .rda import router as rda_router
 from .simulations import router as simulations_router
+from .viewer import router as viewer_router
 
 
 @asynccontextmanager
@@ -34,6 +36,8 @@ CORS_ORIGINS = [
 
 app.include_router(simulations_router)
 app.include_router(rda_router)
+app.include_router(hyetograph_router)
+app.include_router(viewer_router)
 
 app.add_middleware(
     CORSMiddleware,

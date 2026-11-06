@@ -1,9 +1,5 @@
 import { del, get, patch, post, put } from './client'
 
-/** 积水点的落图数据 + 筛选器取值 + 默认剖面。
- *  `source`：'ledger' 845 个历史上报台账点 / 'model' 107 个二维演算识别片区。
- *  两者**返回体结构相同**，故前端两路共用同一段载入与渲染逻辑。 */
-export const fetchHotspots = (source = 'ledger') => get(`/api/hotspots?source=${source}`)
 export const fetchCoverage = () => get('/api/coverage')
 export const fetchDistricts = () => get('/api/districts')
 /** 二维水动力模型识别出的易积水片区（107 个，只有 Al Bateen 一个 run，约 280 KB）。
@@ -19,9 +15,7 @@ export const fetchHyetograph = ({ P, D, step, peakPct }) =>
   get(`/api/hyetograph?depth_mm=${P}&duration_min=${D}` +
       (step != null ? `&step_min=${step}` : '') + (peakPct != null ? `&peak_pct=${peakPct}` : ''))
 
-export const runScenario = body => post('/api/scenario', body)
 export const runPointCurve = body => post('/api/point-curve', body)
-export const fetchStormPreset = body => post('/api/storm-preset', body)
 export const calcHotspot = body => post('/api/calc', body)
 export const compareDatasets = body => post('/api/compare', body)
 export const solveQcap = body => post('/api/qcap', body)
@@ -71,12 +65,33 @@ export const fetchSimulationL2 = id => get(`/api/simulations/${id}/l2`)
 /** 多态任务某一态模型里的储水设施与接它们的管 / 泵（sim_l2.storage_layer）；≡ 别态或没有蓄水单元 404。 */
 export const fetchSimulationStorage = (id, state) => get(`/api/simulations/${id}/layers/storage${stateQ(state)}`)
 /** 交付自带的设施 GIS（塘 / 泵点 / 排水去向 / 地面取水片，sim_l2.facilities_layer）；没有 404。 */
+/** 这次推演进模型的管线（pipes.geojson）；没有的任务 404。 */
+export const fetchSimulationPipes = id => get(`/api/simulations/${id}/pipes`)
 export const fetchSimulationFacilities = (id, state) => get(`/api/simulations/${id}/layers/facilities${stateQ(state)}`)
 /** 交付自带的积水点（如 C1 的 8 个热点）：坐标 / 汇水区面 / 逐态统计，不带 ?state=；没有的任务 404。 */
 export const fetchSimulationHotspots = id => get(`/api/simulations/${id}/hotspots`)
+/** 各态「水深 ≥ 阈值」的积水量（ponding_ge.json）：{threshold_m, volume_m3: {态: m³}}；没有的任务 404。 */
+export const fetchSimulationPondingGe = id => get(`/api/simulations/${id}/ponding-ge`)
+/** 本次推演的全部参数（params.json：规则 + 输入登记 + 一致性核对）；没有的任务 404。 */
+export const fetchSimulationParams = id => get(`/api/simulations/${id}/params`)
+/** 成果数据位置（相对 NAS 根目录）+ 同一区域之前的推演（outputs.json）；没有的任务 404。 */
+export const fetchSimulationOutputs = id => get(`/api/simulations/${id}/outputs`)
+/** 全市应对设备配置（第一档固定设施 45% / 第二档移动泵与罐车 20%）：成果目录里没有这两份文件的任务 404。 */
+export const fetchSimulationEquipment = id => get(`/api/simulations/${id}/equipment`)
+/** 模拟积水点（口径同 RD-A，`city_ponding.py`）：元信息（态 / 热点 / 域外热点）与按阈值现算的清单；没有的任务 404。 */
+export const fetchPondingPointsMeta = id => get(`/api/simulations/${id}/ponding-points/meta`)
+export const fetchPondingPoints = (id, state, depth, minArea, minDur) =>
+  get(`/api/simulations/${id}/ponding-points?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
+/** 单个模拟积水点逐帧的积水量 / 面积 / 最大水深；阈值要与清单一致（编号只在同一态、同一阈值内有效）。 */
+export const fetchPondingPointSeries = (id, state, pointId, depth, minArea, minDur) =>
+  get(`/api/simulations/${id}/ponding-points/${encodeURIComponent(pointId)}/series?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
+/** 单个热点 200 m 圆内逐帧的积水量 / 面积 / 最大水深（口径同下面的圆内峰值积水量）。 */
+export const fetchHotspotCircleSeries = (id, state, hotspotId, depth) =>
+  get(`/api/simulations/${id}/hotspot-buffer/${encodeURIComponent(hotspotId)}/series?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}`)
+/** 热点 200 m 圆内的地表峰值积水量 + 圆重叠（hotspot_buffer.py）。 */
+export const fetchHotspotBuffer = (id, state, depth) =>
+  get(`/api/simulations/${id}/hotspot-buffer?${state ? `state=${encodeURIComponent(state)}&` : ''}depth=${depth}`)
 export const fetchSimulationResidual = (id, state) => get(`/api/simulations/${id}/layers/residual${stateQ(state)}`)
-/** 拟建调蓄池多边形（与任务无关，后端已转 WGS84，属性原样透传）。 */
-export const fetchProposedPonds = () => get('/api/simulations/layers/proposed-ponds')
 /** 多态任务逐时刻的方案效果（sim_effect.py）：各态比基线少上地表多少水、少了几个溢水点。不带 ?state=，一次给全部态。 */
 export const fetchSimulationStateEffect = id => get(`/api/simulations/${id}/states/effect`)
 /** 效果分析页（sim_perf.py）：既有（第一态）对方案态 `vs` 的对照数字；`h` 是时刻档，不给取默认 2 h。 */
@@ -107,5 +122,11 @@ export const fetchRdaFrame = (state, i, base) =>
   get(`/api/rda/states/${state}/frames/${i}` + (base ? `?mode=diff&base=${base}` : ''))
 export const fetchRdaMaxDepthDiff = (state, base) => get(`/api/rda/states/${state}/max-depth-diff?base=${base}`)
 export const fetchRdaHotspotSeries = () => get('/api/rda/hotspots/series')
+export const fetchRdaHotspotBuffer = (state, depth) => get(`/api/rda/states/${state}/hotspot-buffer?depth=${depth}`)
+export const fetchRdaHotspotCircleSeries = (state, hotspotId, depth) =>
+  get(`/api/rda/states/${state}/hotspot-buffer/${encodeURIComponent(hotspotId)}/series?depth=${depth}`)
+/** RD-A 单个积水点（按经纬度指定）逐帧的积水量 / 面积 / 最大水深。 */
+export const fetchRdaPointSeries = (state, lon, lat, depth, minArea, minDur) =>
+  get(`/api/rda/states/${state}/ponding/series?lon=${lon}&lat=${lat}&depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)
 export const fetchRdaPondingCustom = (state, depth, minArea, minDur) =>
   get(`/api/rda/states/${state}/ponding/custom?depth=${depth}&min_area=${minArea}&min_dur=${minDur}`)

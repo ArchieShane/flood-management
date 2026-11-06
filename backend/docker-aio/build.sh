@@ -23,6 +23,7 @@ rm -rf "$CTX"; mkdir -p "$CTX"
 cp -r ../src ../sql "$CTX/"
 cp ../requirements.txt Dockerfile nginx.conf entrypoint.sh "$CTX/"
 cp -r "$WEB/dist" "$CTX/web"
+cp -r ../../viewer/web "$CTX/viewer-web"        # 推演成果展示页（/viewer/）
 find "$CTX" -name __pycache__ -prune -exec rm -rf {} +
 # 在 Windows 上签出时脚本可能是 CRLF，进镜像前统一转 LF（CRLF 会让 #!/bin/bash 失效）
 sed -i 's/\r$//' "$CTX/entrypoint.sh" "$CTX/nginx.conf" "$CTX/Dockerfile"
